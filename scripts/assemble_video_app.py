@@ -110,30 +110,41 @@ def main():
     sora_path = target / 'SoraPipeline.swift'
     sora = sora_path.read_text()
     sora = must_replace(sora,
-        '               print("Error: Can\'t tokenize")\n               return',
+        '              print("Error: Can\'t tokenize")\n              return',
         '               print("Error: Can\'t tokenize")\n'
         '               await MainActor.run { Converter?.errorMessage = "The text encoder could not tokenize this prompt." }\n'
         '               return', 'tokenization errors') if '               print("Error: Can\'t tokenize")\n               return' in sora else sora
     # Guard missing model output before attempting a force-unwrapped STDiT.
     sora = must_replace(sora,
-        '           let rflowInput = RFLOWInput(model: STDiT!,',
+        '          let rflowInput = RFLOWInput(model: STDiT!,',
         '           guard let model = STDiT else {\n'
         '             await MainActor.run { Converter?.errorMessage = "Missing MOVD video diffusion model files." }\n'
         '             return\n'
         '           }\n'
         '           let rflowInput = RFLOWInput(model: model,', 'missing STDiT guard')
     sora = must_replace(sora,
-        '           print("Error: Can\'t make sample.")\n           print(error)',
+        '          print("Error: Can\'t make sample.")\n          print(error)',
         '           print("Error: Can\'t make sample.")\n           print(error)\n'
         '           await MainActor.run { Converter?.errorMessage = error.localizedDescription }',
         'visible inference failure')
     sora = must_replace(sora,
-        '           let _ = await Converter!.convertToVideo(multiArray: resultDecoding, logdir: logdir, filename: filename)',
+        '          let _ = await Converter!.convertToVideo(multiArray: resultDecoding, logdir: logdir, filename: filename)',
         '           let output = await Converter!.convertToVideo(multiArray: resultDecoding, logdir: logdir, filename: filename)\n'
         '           if output == nil {\n'
         '             await MainActor.run { Converter?.errorMessage = "Video encoding failed." }\n'
         '           }', 'MP4 encoding failure')
     sora_path.write_text(sora)
+
+    # Boot into VANTA's tabs, not MOVD's unbranded demonstration screen.
+    appfile = target / 'On_Device_MOVD_SoraApp.swift'
+    appcode = appfile.read_text()
+    appcode = must_replace(appcode, '    var body: some Scene {',
+        '    @StateObject private var workspace = WorkspaceStore()\\n\\n    var body: some Scene {'.replace('\\n', '\n'),
+        'workspace state')
+    appcode = must_replace(appcode, '            ContentView()',
+        '            MainTabView()\\n                .environmentObject(workspace)\\n                .preferredColorScheme(.dark)'.replace('\\n','\n'),
+        'VANTA main screen')
+    appfile.write_text(appcode)
 
     # Preserve the bundled app icon. MOVD's Xcode project uses a synchronized root group.
     shutil.rmtree(target / 'Assets.xcassets', ignore_errors=True)
@@ -180,6 +191,7 @@ def main():
             if file.stem not in seen:
                 shutil.copy2(file, target / file.name)
                 seen.add(file.stem)
+        seen.update(p.name for p in target.iterdir() if p.is_file() and p.name in {'tokenizer.json', 'tokenizer_config.json'})
         missing = sorted(REQUIRED_MODEL_FILES - seen)
         missing_vaes = sorted(set(VAE_NAMES) - {p.stem for p in target.glob('*.mlpackage')})
         if missing or missing_vaes:
