@@ -36,6 +36,22 @@ jobs:
           "$RUNNER_TEMP/vanta-py/bin/python" -m gdown --folder --remaining-ok \
             'https://drive.google.com/drive/folders/1L6pVi3KmyLygR_pvKofRL-21adKsEb4p' \
             -O "$RUNNER_TEMP/movd-weights"
+      - name: Unpack official MOVD Core ML model archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=("$RUNNER_TEMP"/movd-weights/*.zip)
+          if (( ${#archives[@]} == 0 )); then echo 'No MOVD model archives found'; exit 1; fi
+          for archive in "${archives[@]}"; do
+            dest="${archive%.zip}"
+            mkdir -p "$dest"
+            echo "Unpacking $(basename "$archive")"
+            unzip -q "$archive" -d "$dest"
+          done
+          count=$(find "$RUNNER_TEMP/movd-weights" -type d -name '*.mlpackage' | wc -l | tr -d ' ')
+          echo "Core ML source packages: $count"
+          if [ "$count" -eq 0 ]; then echo 'No Core ML models in archives'; exit 1; fi
       - name: Show available disk and downloaded models
         run: |
           df -h .
