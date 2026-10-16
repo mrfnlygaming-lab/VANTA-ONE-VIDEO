@@ -1,0 +1,1 @@
+This overlay is compiled into the upstream MOVD Xcode target after its actual Swift/Core ML video diffusion implementation is fetched. There is no mocked video-generation service, API call, or animated slideshow here.

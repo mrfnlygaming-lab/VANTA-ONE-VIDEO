@@ -1,0 +1,9 @@
+MOVD — Mobile-Oriented Video Diffusion
+Copyright (c) 2025 EAI LAB at UNIST
+https://github.com/eai-lab/MOVD
+
+The MOVD repository is made available under the MIT License. The assembled
+VANTA ONE video build reuses upstream source code after retrieving that project.
+Its licensing terms require the complete MIT notice to be included with copies.
+The source assembly script preserves upstream files and the upstream LICENSE.
+Model weights might have separate licensing conditions.
