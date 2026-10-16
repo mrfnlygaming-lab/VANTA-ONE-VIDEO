@@ -28,31 +28,35 @@ jobs:
         with:
           path: ${{ runner.temp }}/movd-weights/STDiT&TDTM.zip
           key: movd-official-stdit-2026-v1
-      - name: Download public MOVD Core ML model files
+      - name: Prepare isolated download tool
         shell: bash
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/vanta-py"
-          "$RUNNER_TEMP/vanta-py/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/vanta-py/bin/python" -m pip install 'gdown>=5,<6'
           mkdir -p "$RUNNER_TEMP/movd-weights"
-          # The weights are maintained by the MOVD researchers; they are NOT
-          # included in this source archive. A large Google Drive folder may
-          # hit download limits, in which case the job must fail transparently.
-          download_one() {
-            if [ -s "$2" ]; then echo "Reusing $(basename "$2")"; return; fi
-            "$RUNNER_TEMP/vanta-py/bin/python" -m gdown "https://drive.google.com/uc?id=$1" -O "$2"
-          }
-          download_one '1J-w_iheElc90Ht7U8d3u55coa5elT52b' "$RUNNER_TEMP/movd-weights/STDiT&TDTM.zip"
-          download_one '1aSQ_XBWR6n4YUS4fC51RFLoFppar0IQ1' "$RUNNER_TEMP/movd-weights/T5.zip"
-          download_one '1zSnkLJQ1oaqCAup_5cs-AUWLBLJWr48s' "$RUNNER_TEMP/movd-weights/VAE.zip"
-      - name: Cache official STDiT archive for future builds
+      - name: Download official STDiT video diffusion models
+        if: steps.stdit-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/vanta-py/bin/python" -m gdown 'https://drive.google.com/uc?id=1J-w_iheElc90Ht7U8d3u55coa5elT52b' -O "$RUNNER_TEMP/movd-weights/STDiT&TDTM.zip"
+          test -s "$RUNNER_TEMP/movd-weights/STDiT&TDTM.zip"
+      - name: Save STDiT model cache immediately
         if: steps.stdit-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/movd-weights/STDiT&TDTM.zip
           key: movd-official-stdit-2026-v1
+      - name: Download official T5 and VAE models
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/vanta-py/bin/python" -m gdown 'https://drive.google.com/uc?id=1aSQ_XBWR6n4YUS4fC51RFLoFppar0IQ1' -O "$RUNNER_TEMP/movd-weights/T5.zip"
+          "$RUNNER_TEMP/vanta-py/bin/python" -m gdown 'https://drive.google.com/uc?id=1zSnkLJQ1oaqCAup_5cs-AUWLBLJWr48s' -O "$RUNNER_TEMP/movd-weights/VAE.zip"
+          test -s "$RUNNER_TEMP/movd-weights/T5.zip"
+          test -s "$RUNNER_TEMP/movd-weights/VAE.zip"
       - name: Unpack official MOVD Core ML model archives
         shell: bash
         run: |
