@@ -22,12 +22,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user 'gdown>=5,<6'
+          python3 -m venv "$RUNNER_TEMP/vanta-py"
+          "$RUNNER_TEMP/vanta-py/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/vanta-py/bin/python" -m pip install 'gdown>=5,<6'
           mkdir -p "$RUNNER_TEMP/movd-weights"
           # The weights are maintained by the MOVD researchers; they are NOT
           # included in this source archive. A large Google Drive folder may
           # hit download limits, in which case the job must fail transparently.
-          python3 -m gdown --folder --remaining-ok \
+          "$RUNNER_TEMP/vanta-py/bin/python" -m gdown --folder --remaining-ok \
             'https://drive.google.com/drive/folders/1L6pVi3KmyLygR_pvKofRL-21adKsEb4p' \
             -O "$RUNNER_TEMP/movd-weights"
       - name: Show available disk and downloaded models
