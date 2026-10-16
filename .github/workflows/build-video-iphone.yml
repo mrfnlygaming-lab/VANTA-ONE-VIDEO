@@ -11,9 +11,9 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Check out VANTA source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Check out MOVD (MIT-licensed diffusion engine)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: eai-lab/MOVD
           ref: main
@@ -22,6 +22,12 @@ jobs:
         run: |
           python3 -m py_compile scripts/assemble_video_app.py
           python3 scripts/assemble_video_app.py --movd vendor/MOVD --models /tmp/empty-models --output "$RUNNER_TEMP/VantaSourceCheck" --source-only-check
+      - name: Restore cache of official MOVD STDiT model archive
+        id: stdit-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/movd-weights/STDiT&TDTM.zip
+          key: movd-official-stdit-2026-v1
       - name: Download public MOVD Core ML model files
         shell: bash
         run: |
@@ -33,9 +39,20 @@ jobs:
           # The weights are maintained by the MOVD researchers; they are NOT
           # included in this source archive. A large Google Drive folder may
           # hit download limits, in which case the job must fail transparently.
-          "$RUNNER_TEMP/vanta-py/bin/python" -m gdown --folder --remaining-ok \
-            'https://drive.google.com/drive/folders/1L6pVi3KmyLygR_pvKofRL-21adKsEb4p' \
-            -O "$RUNNER_TEMP/movd-weights"
+          download_one() {
+            if [ -s "$2" ]; then echo "Reusing $(basename "$2")"; return; fi
+            "$RUNNER_TEMP/vanta-py/bin/python" -m gdown "https://drive.google.com/uc?id=$1" -O "$2"
+          }
+          download_one '1J-w_iheElc90Ht7U8d3u55coa5elT52b' "$RUNNER_TEMP/movd-weights/STDiT&TDTM.zip"
+          download_one '1aSQ_XBWR6n4YUS4fC51RFLoFppar0IQ1' "$RUNNER_TEMP/movd-weights/T5.zip"
+          download_one '1zSnkLJQ1oaqCAup_5cs-AUWLBLJWr48s' "$RUNNER_TEMP/movd-weights/VAE.zip"
+      - name: Cache official STDiT archive for future builds
+        if: steps.stdit-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/movd-weights/STDiT&TDTM.zip
+          key: movd-official-stdit-2026-v1
       - name: Unpack official MOVD Core ML model archives
         shell: bash
         run: |
