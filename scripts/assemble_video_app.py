@@ -187,10 +187,9 @@ def main():
             if file.is_file() and file.name in {'tokenizer.json', 'tokenizer_config.json'}:
                 shutil.copy2(file, target / file.name)
                 seen.add(file.name)
-        for file in modelroot.rglob('*.mlmodel'):
-            if file.stem not in seen:
-                shutil.copy2(file, target / file.name)
-                seen.add(file.stem)
+        # Do NOT copy loose model.mlmodel files nested inside .mlpackage
+        # directories. They refer to sibling Data/.../weights/weight.bin files,
+        # so copying them alone creates a broken orphan model in Xcode.
         seen.update(p.name for p in target.iterdir() if p.is_file() and p.name in {'tokenizer.json', 'tokenizer_config.json'})
         missing = sorted(REQUIRED_MODEL_FILES - seen)
         missing_vaes = sorted(set(VAE_NAMES) - {p.stem for p in target.glob('*.mlpackage')})
