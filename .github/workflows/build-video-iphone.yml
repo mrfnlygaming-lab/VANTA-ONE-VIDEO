@@ -18,6 +18,10 @@ jobs:
           repository: eai-lab/MOVD
           ref: main
           path: vendor/MOVD
+      - name: Check Swift integration before model download
+        run: |
+          python3 -m py_compile scripts/assemble_video_app.py
+          python3 scripts/assemble_video_app.py --movd vendor/MOVD --models /tmp/empty-models --output "$RUNNER_TEMP/VantaSourceCheck" --source-only-check
       - name: Download public MOVD Core ML model files
         shell: bash
         run: |
