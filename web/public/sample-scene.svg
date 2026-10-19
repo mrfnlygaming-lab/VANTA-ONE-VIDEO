@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<defs>
+<linearGradient id="sky" x2="0" y2="1"><stop stop-color="#8dadaa"/><stop offset=".54" stop-color="#d4cfb4"/><stop offset="1" stop-color="#e5cea3"/></linearGradient>
+<linearGradient id="water" x2="0" y2="1"><stop stop-color="#96aba4"/><stop offset="1" stop-color="#3b615d"/></linearGradient>
+<linearGradient id="ridge" x2="0" y2="1"><stop stop-color="#617b76"/><stop offset="1" stop-color="#a5aea0"/></linearGradient>
+<radialGradient id="glow"><stop stop-color="#ffe7a5" stop-opacity=".8"/><stop offset="1" stop-color="#f7e4bb" stop-opacity="0"/></radialGradient>
+<filter id="texture"><feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".1"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+</defs>
+<g filter="url(#texture)"><path fill="url(#sky)" d="M0 0h1600v1000H0z"/><ellipse cx="1170" cy="220" rx="460" ry="340" fill="url(#glow)"/><circle cx="1160" cy="215" r="55" fill="#f5e3b3"/>
+<path d="M0 510 120 400l110 35 175-206 105 99 132-183 113 170 62-40 160 181 100-70 115 146 180-67 228 95v240H0Z" fill="#9da99e"/>
+<path d="m240 526 165-297 105 99 132-183 113 170 62-40 160 181-120-45-55-68-57 7-43-69-60 18-40 66-83-41-84 145Z" fill="url(#ridge)"/>
+<path d="m580 238 62-93 113 170-70-54-37-48-20 54Z" fill="#d8d8bf"/><path d="m357 310 48-81 105 99-56-17-37-45-19 47Z" fill="#d3d7c4"/>
+<path d="M0 360 118 412l170 166 172 21 130 98H0Z" fill="#365b51"/><path d="M1600 330 1420 418l-95 117-143 56-122 124h540Z" fill="#416054"/>
+<path d="M0 660q310-34 610 10t990-3v333H0Z" fill="url(#water)"/>
+<path d="M180 717q300 10 640-1M760 756q260-9 580-1M250 817q290-13 500-2M940 875q270-15 490-3M130 936q200-12 360-2" stroke="#a6b9a6" stroke-width="3" opacity=".28" fill="none"/>
+<path d="M0 480 65 590l-20 8 54 81-40 2 60 103H0Z" fill="#193e36"/><path d="m127 509-40 82h20l-44 83h29l-53 95h173l-53-95h29l-45-83h21Z" fill="#21493e"/>
+<path d="m1490 423-50 100h24l-56 107h33l-71 124h230V528l-52-105-29 62Z" fill="#203f35"/>
+<path d="M0 927q138-97 270-40l170 113H0Z" fill="#27483b"/><path d="M1600 817q-87 6-183 74t-213 109h396Z" fill="#244236"/>
+<path d="m976 696 37-10 37 10-37 7Z" fill="#aa7452"/><path d="M1013 685v-30" stroke="#534b36" stroke-width="3"/><path d="m1012 656-17 25h17Z" fill="#e0d6af"/>
+</g></svg>

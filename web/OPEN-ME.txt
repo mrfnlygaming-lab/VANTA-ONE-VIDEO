@@ -1,0 +1,23 @@
+VANTA MOTION STUDIO — OPEN & CREATE
+
+1. Extract this ZIP to a folder on your computer.
+2. Open VANTA-OPEN.html in a current Chrome or Edge browser.
+   If it opens in an editor or a file preview, use Open With > Chrome or Edge.
+3. Choose a photo, or select "Try an example".
+4. Choose your movement and duration, then select "Generate video".
+5. Keep the tab visible while rendering. Select "Download" to save your video.
+
+No installation, server, account, hosting service, API key, or internet connection
+is required to use this HTML app. All assets and rendering code are in the file.
+
+MP4/H.264 is preferred; browsers without MP4 recording use WebM. The app shows
+the actual output format. Rendering takes approximately the video's duration.
+Browser recording timing and frame rate depend on your device's performance.
+
+This animates your photo with camera pan or zoom. It does not synthesize subject
+movement with AI. Videos are silent. Browser storage may be cleared or disabled;
+download videos you want to keep.
+
+This is a standalone app file, not a link to the cloud environment's preview.
+Some managed browsers block local HTML files by policy. Do not change those
+policies; use a permitted browser or contact your administrator.

@@ -1,0 +1,28 @@
+{
+  "name": "vanta-motion-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"node --watch server/index.js\" \"vite --host 0.0.0.0\"",
+    "build": "tsc -b && vite build && npm run build:standalone",
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "start": "node server/index.js",
+    "test": "node --test server/test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "multer": "^2.0.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "concurrently": "^9.2.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

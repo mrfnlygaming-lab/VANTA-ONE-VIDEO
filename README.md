@@ -1,4 +1,32 @@
-# VANTA ONE VIDEO — on-device iPhone text-to-video integration (research build)
+# VANTA ONE VIDEO
+
+## Browser image-to-video studio
+
+**Download the ready-to-open app:** See [downloads](downloads/README.md) for the
+standalone ZIP and simple opening instructions. This download runs without the
+cloud environment's preview panel.
+
+The new [VANTA Motion Studio](web/README.md) runs in a browser. Upload a photo,
+choose a cinematic pan or zoom, and export a real MP4 in landscape, portrait, or
+square format. It runs on Node.js and FFmpeg without API keys or model downloads.
+This is camera animation of a still image, rather than AI subject animation.
+
+**Open directly:** After building, open `web/dist/VANTA-OPEN.html` in Chrome or
+Edge. This self-contained version works without a server or environment preview
+and records video inside the browser. It prefers MP4 and falls back to WebM when
+the browser does not support MP4 recording.
+
+```sh
+cd web
+npm ci --cache /tmp/vanta-npm-cache
+npm run build
+npm start
+```
+
+The app serves its client and rendering API on port 3001. See the web README for
+development commands, storage limits, and validation.
+
+## Original on-device iPhone text-to-video integration (research build)
 
 **Status: Source integration written, not a tested app.** This package contains real SwiftUI interface code wired to the **MOVD (Mobile-Oriented Video Diffusion)** inference implementation. It does NOT include the several-gigabyte Core ML model weights, a compiled IPA, or a seven-second video-generation breakthrough. It cannot generate video without an actual MOVD model asset bundle.
 
