@@ -4,9 +4,9 @@ The Windows browser studio now uses **VANTA Motion Core** as its only AI video r
 
 - no paid xAI/Grok generation credits
 - no cloud video API
-- no LTX fallback
+- no alternate video-model fallback
 - local Wan 2.1 T2V 1.3B backbone
-- trained XZAKUT motion LoRA
+- trained VANTA motion adapter
 - optional local Auto Sound post-pass
 - VANTA Reference Core planned/training for future reference-image conditioning
 
