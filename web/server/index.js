@@ -110,7 +110,7 @@ export async function createApp(options = {}) {
         keepOutfit = "true",
         aiBackend = "vanta-motion",
         soundMode = "silent",
-        speedMode = "hyper",
+        speedMode = "turbo",
       } = req.body;
       if (!["ai", "camera"].includes(engine))
         throw new RenderError("Choose AI scene or Camera sequence.", 400);
@@ -153,8 +153,8 @@ export async function createApp(options = {}) {
         );
       if (engine === "ai" && aiBackend !== "vanta-motion")
         throw new RenderError("VANTA Motion Core is the only AI engine enabled.", 400);
-      if (engine === "ai" && !["hyper", "turbo", "balanced", "quality"].includes(speedMode))
-        throw new RenderError("Choose Hyper, Turbo, Balanced, or Quality speed mode.", 400);
+      if (engine === "ai" && !["turbo", "balanced", "quality"].includes(speedMode))
+        throw new RenderError("Choose Turbo, Balanced, or Quality speed mode.", 400);
       const selectedService = engine === "camera" ? service : wanService;
       const parsedBackgroundIndex = Number(backgroundIndex);
       const job = await selectedService.enqueue(
