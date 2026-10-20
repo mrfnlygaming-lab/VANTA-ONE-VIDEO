@@ -1,21 +1,22 @@
-# VANTA ONE VIDEO — credit-free browser AI studio
+# VANTA ONE VIDEO — local VANTA Motion Core
 
-**No paid xAI/Grok credits required in the updated Codex branch.**
-The browser AI scene mode now invokes an installed LTX-Video image-to-video
-model on your PC. No paid provider or API key is needed.
+The Windows browser studio now uses **VANTA Motion Core** as its only AI video route.
 
-- [Windows setup — NO CREDITS](web/LOCAL-NO-CREDITS.md)
-- [Windows launcher](web/START-VANTA-LOCAL.cmd)
+- no paid xAI/Grok generation credits
+- no cloud video API
+- no LTX fallback
+- local Wan 2.1 T2V 1.3B backbone
+- trained XZAKUT motion LoRA
+- optional local Auto Sound post-pass
+- VANTA Reference Core planned/training for future reference-image conditioning
+
+Start here:
+
+- [Windows setup](web/LOCAL-NO-CREDITS.md)
+- [Windows launcher](web/START-VANTA.cmd)
 - [Browser app README](web/README.md)
 
-Get the updated source from the Codex branch; the old
-downloads/VANTA-AI-LOCAL-SERVER.zip is obsolete and still charges xAI
-credits. It cannot be used for no-credit AI. A working local model,
-CUDA-enabled GPU, Python dependencies, FFmpeg/FFprobe and Node.js are
-still necessary. One starting photo per local AI scene is supported;
-Camera sequence accepts multiple photos but only pans/zooms.
-
-The new local code has been committed, not verified on your hardware.
+The current trained core is prompt-driven. Reference images are intentionally disabled until VANTA Reference Core is trained on top of the same backbone instead of routing through another video model.
 
 ## Original on-device iPhone text-to-video integration (research build)
 
