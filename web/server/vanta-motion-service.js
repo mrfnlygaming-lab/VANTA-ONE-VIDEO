@@ -488,6 +488,7 @@ export class VantaMotionService extends XaiService {
       job.progress = 90;
       const audio = await this.audioService.apply({
         soundMode: job.soundMode,
+        speedMode: job.speedMode,
         videoPath: this.filePath(job.id),
         prompt: job.prompt,
         workDir: work.workDir,
