@@ -129,7 +129,7 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
-  const [duration, setDuration] = useState(5);
+  const [duration, setDuration] = useState(3);
   const [job, setJob] = useState<Video | null>(null);
   const [videos, setVideos] = useState<Video[]>([]);
   const [error, setError] = useState<string | null>(null);
