@@ -19,7 +19,6 @@ function run(command, args, { cwd, signal, maxMs = 1_800_000 } = {}) {
         ...process.env,
         HF_HUB_DISABLE_TELEMETRY: "1",
         HF_HOME: process.env.VANTA_AUDIO_HF_HOME || "P:\\GROK\\VANTA_AUDIO\\HF_CACHE",
-        TRANSFORMERS_CACHE: process.env.VANTA_AUDIO_HF_HOME || "P:\\GROK\\VANTA_AUDIO\\HF_CACHE",
       },
     });
     let stdout = "";
@@ -188,7 +187,12 @@ export class LocalAudioService {
         audioEngine: null,
         warning:
           "The local Auto Sound pass failed, so VANTA kept the finished silent video. " +
-          (error instanceof Error ? error.message.slice(0, 300) : ""),
+          (error instanceof Error
+            ? error.message
+                .replace(/.*TRANSFORMERS_CACHE.*\\r?\\n?/g, "")
+                .replace(/.*FutureWarning.*\\r?\\n?/g, "")
+                .slice(-1400)
+            : ""),
       };
     }
   }
