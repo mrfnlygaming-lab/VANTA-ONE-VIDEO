@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
+  mkdtemp,
+  copyFile,
   readdir,
   readFile,
   rename,
@@ -9,11 +11,22 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { FORMATS, inspectImage, renderVideo, RenderError } from "./renderer.js";
+import {
+  FORMATS,
+  inspectImage,
+  renderSequence,
+  RenderError,
+} from "./renderer.js";
+import {
+  MAX_IMAGES,
+  MAX_TOTAL_DURATION,
+  resolvePromptMotion,
+} from "../shared/prompt.js";
 
 const ID_PATTERN =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const clean = (file) => rm(file, { force: true }).catch(() => {});
+const clean = (file) =>
+  rm(file, { force: true, recursive: true }).catch(() => {});
 
 export class VideoService {
   constructor({
@@ -118,7 +131,8 @@ export class VideoService {
   }
 
   publicJob(job) {
-    const { imagePath, demuxer, ...publicFields } = job;
+    const { imagePath, demuxer, images, workDir, parentPath, ...publicFields } =
+      job;
     return {
       ...publicFields,
       fileUrl: job.status === "completed" ? `/api/videos/${job.id}/file` : null,
@@ -134,28 +148,73 @@ export class VideoService {
       .map((job) => this.publicJob(job));
   }
 
-  async enqueue(file, { motion, duration, format }, signal) {
-    const image = await inspectImage(file.path, {
-      ffprobePath: this.ffprobePath,
-      signal,
-    });
-    if (signal?.aborted || this.closed)
-      throw new RenderError("Generation cancelled.", 499);
+  async enqueue(
+    files,
+    { motion, duration, format, prompt = "", parentId = null },
+    signal,
+  ) {
+    const parent = parentId ? this.jobs.get(parentId) : null;
+    if (parentId && (!parent || parent.status !== "completed"))
+      throw new RenderError("Choose a completed video to extend.", 404);
+    if (files.length > MAX_IMAGES || (!files.length && !parent))
+      throw new RenderError(`Choose between 1 and ${MAX_IMAGES} images.`, 400);
+    const totalDuration = (parent?.duration || 0) + duration;
+    if (totalDuration > MAX_TOTAL_DURATION)
+      throw new RenderError(
+        `A video can be at most ${MAX_TOTAL_DURATION} seconds long. Choose a shorter extension.`,
+        400,
+      );
     const id = randomUUID();
+    const workDir = await mkdtemp(path.join(this.uploadDir, `${id}-`));
+    let parentPath = null;
+    const images = [];
+    try {
+      if (parent) {
+        parentPath = path.join(workDir, "parent.mp4");
+        try {
+          await copyFile(this.filePath(parent.id), parentPath);
+        } catch (error) {
+          if (error.code === "ENOENT")
+            throw new RenderError(
+              "The original video is no longer available. Choose another completed video.",
+              404,
+            );
+          throw error;
+        }
+        format = parent.format;
+      }
+      for (const file of files) {
+        const image = await inspectImage(file.path, {
+          ffprobePath: this.ffprobePath,
+          signal,
+        });
+        images.push({ imagePath: file.path, demuxer: image.demuxer });
+      }
+      if (signal?.aborted || this.closed)
+        throw new RenderError("Generation cancelled.", 499);
+    } catch (error) {
+      await clean(workDir);
+      throw error;
+    }
     const job = {
       id,
       status: "queued",
       progress: 0,
       createdAt: new Date().toISOString(),
       completedAt: null,
-      motion,
-      duration,
+      motion: resolvePromptMotion(prompt, motion),
+      prompt,
+      parentId: parent?.id || null,
+      duration: totalDuration,
+      addedDuration: duration,
+      imageCount: files.length || 1,
       format,
       ...FORMATS[format],
       filename: `vanta-${id.slice(0, 8)}.mp4`,
       error: null,
-      imagePath: file.path,
-      demuxer: image.demuxer,
+      images,
+      workDir,
+      parentPath,
     };
     this.jobs.set(id, job);
     this.queue.push(id);
@@ -184,7 +243,7 @@ export class VideoService {
     job.status = "processing";
     job.progress = 1;
     try {
-      await renderVideo(
+      await renderSequence(
         { ...job, outputPath: this.partialPath(job.id) },
         {
           ffmpegPath: this.ffmpegPath,
@@ -195,7 +254,7 @@ export class VideoService {
               99,
               Math.max(
                 job.progress,
-                Math.round(microseconds / (job.duration * 10_000)),
+                Math.round(microseconds / (job.addedDuration * 10_000)),
               ),
             );
           },
@@ -226,9 +285,7 @@ export class VideoService {
       ]);
     } finally {
       this.controllers.delete(job.id);
-      await clean(job.imagePath);
-      delete job.imagePath;
-      delete job.demuxer;
+      await this.cleanupSources(job);
       // Avoid retaining an unbounded number of failed jobs in a long-running server.
       const unsuccessful = [...this.jobs.values()].filter((entry) =>
         ["failed", "cancelled"].includes(entry.status),
@@ -254,7 +311,7 @@ export class VideoService {
       clean(this.partialPath(id)),
       clean(this.metadataPath(id)),
       clean(`${this.metadataPath(id)}.tmp`),
-      ...(job.imagePath ? [clean(job.imagePath)] : []),
+      this.cleanupSources(job),
     ]);
     return true;
   }
@@ -276,7 +333,16 @@ export class VideoService {
     this.closed = true;
     for (const controller of this.controllers.values()) controller.abort();
     await Promise.allSettled([...this.tasks]);
-    for (const job of this.jobs.values())
-      if (job.imagePath) await clean(job.imagePath);
+    for (const job of this.jobs.values()) await this.cleanupSources(job);
+  }
+
+  async cleanupSources(job) {
+    await Promise.all([
+      ...(job.images || []).map((image) => clean(image.imagePath)),
+      ...(job.workDir ? [clean(job.workDir)] : []),
+    ]);
+    delete job.images;
+    delete job.workDir;
+    delete job.parentPath;
   }
 }

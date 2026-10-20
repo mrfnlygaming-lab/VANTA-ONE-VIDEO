@@ -7,8 +7,9 @@ standalone ZIP and simple opening instructions. This download runs without the
 cloud environment's preview panel.
 
 The new [VANTA Motion Studio](web/README.md) runs in a browser. Upload a photo,
-choose a cinematic pan or zoom, and export a real MP4 in landscape, portrait, or
-square format. It runs on Node.js and FFmpeg without API keys or model downloads.
+arrange up to six photos, add a camera prompt, and export a video in landscape,
+portrait, or square format. A popup after generation lets you extend the result
+with another scene. The server version runs on Node.js and FFmpeg without API keys or model downloads.
 This is camera animation of a still image, rather than AI subject animation.
 
 **Open directly:** After building, open `web/dist/VANTA-OPEN.html` in Chrome or

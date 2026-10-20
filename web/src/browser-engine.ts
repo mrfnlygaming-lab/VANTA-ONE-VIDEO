@@ -1,4 +1,10 @@
 import { ApiError } from "./runtime";
+import {
+  MAX_IMAGES,
+  MAX_PROMPT_LENGTH,
+  MAX_TOTAL_DURATION,
+  resolvePromptMotion,
+} from "../shared/prompt.js";
 
 type Motion = "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "still";
 type Format = "landscape" | "portrait" | "square";
@@ -7,6 +13,10 @@ type Job = {
   status: "queued" | "processing" | "completed" | "failed" | "cancelled";
   progress: number;
   duration: number;
+  addedDuration: number;
+  parentId: string | null;
+  prompt: string;
+  imageCount: number;
   format: Format;
   motion: Motion;
   width: number;
@@ -23,7 +33,9 @@ type Job = {
 };
 type StoredVideo = { id: string; job: Job; blob: Blob };
 type Work = {
-  file: File;
+  files: File[];
+  parentBlob?: Blob;
+  parentDuration: number;
   job: Job;
   controller: AbortController;
   running?: Promise<void>;
@@ -35,6 +47,7 @@ const sizes = {
 } as const;
 const motions = ["zoom-in", "zoom-out", "pan-left", "pan-right", "still"];
 const jobs = new Map<string, Job>();
+const completedBlobs = new Map<string, Blob>();
 const work = new Map<string, Work>();
 const queue: string[] = [];
 let busy = false;
@@ -50,7 +63,9 @@ function createId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 15) | 64;
   bytes[8] = (bytes[8] & 63) | 128;
-  const hex = [...bytes].map(value => value.toString(16).padStart(2, "0")).join("");
+  const hex = [...bytes]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -139,8 +154,13 @@ async function initialize() {
         !["mp4", "webm"].includes(record.job.extension)
       )
         continue;
+      completedBlobs.set(record.id, record.blob);
       jobs.set(record.id, {
         ...record.job,
+        parentId: record.job.parentId ?? null,
+        prompt: record.job.prompt ?? "",
+        addedDuration: record.job.addedDuration ?? record.job.duration,
+        imageCount: record.job.imageCount ?? 1,
         fileUrl: URL.createObjectURL(record.blob),
         persisted: true,
         warning: null,
@@ -183,45 +203,81 @@ function checkCancelled(signal: AbortSignal) {
   if (signal.aborted) throw new ApiError("Video generation cancelled.", 499);
 }
 
-async function record({ file, job, controller }: Work): Promise<Blob> {
-  const { signal } = controller;
+function checkVisible(signal: AbortSignal) {
   checkCancelled(signal);
   if (document.hidden)
     throw new ApiError(
       "Keep this page visible while your video renders, then try again.",
       400,
     );
-  let image: ImageBitmap;
-  try {
-    image = await createImageBitmap(file, { imageOrientation: "from-image" });
-  } catch {
-    throw new ApiError(
-      "This image cannot be decoded. Try another JPEG, PNG, or WebP image.",
-      400,
-    );
-  }
+}
+
+function loadParent(
+  video: HTMLVideoElement,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener("loadeddata", loaded);
+      video.removeEventListener("error", failed);
+      signal.removeEventListener("abort", abort);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+    const finish = (error?: Error) => {
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const loaded = () => finish();
+    const failed = () =>
+      finish(
+        new ApiError(
+          "The saved video cannot be decoded for extension. Try generating it again.",
+          400,
+        ),
+      );
+    const abort = () =>
+      finish(new ApiError("Video generation cancelled.", 499));
+    const visibility = () => {
+      if (document.hidden)
+        finish(
+          new ApiError(
+            "Keep this page visible while your video renders, then try again.",
+            400,
+          ),
+        );
+    };
+    const timer = window.setTimeout(failed, 8000);
+    video.addEventListener("loadeddata", loaded, { once: true });
+    video.addEventListener("error", failed, { once: true });
+    signal.addEventListener("abort", abort, { once: true });
+    document.addEventListener("visibilitychange", visibility);
+    if (signal.aborted) abort();
+    else if (document.hidden) visibility();
+    else if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) loaded();
+    else video.load();
+  });
+}
+
+async function record({
+  files,
+  parentBlob,
+  parentDuration,
+  job,
+  controller,
+}: Work): Promise<Blob> {
+  const { signal } = controller;
+  checkVisible(signal);
+  const images: ImageBitmap[] = [];
   let stream: MediaStream | undefined;
+  let parentVideo: HTMLVideoElement | undefined;
+  let parentUrl: string | undefined;
+  let continuation: HTMLCanvasElement | undefined;
+  const canvas = document.createElement("canvas");
+  canvas.width = job.width;
+  canvas.height = job.height;
   try {
-    checkCancelled(signal);
-    if (document.hidden)
-      throw new ApiError(
-        "Keep this page visible while your video renders, then try again.",
-        400,
-      );
-    if (
-      image.width < 2 ||
-      image.height < 2 ||
-      Math.max(image.width, image.height) > 16384 ||
-      image.width * image.height > 40_000_000
-    ) {
-      throw new ApiError(
-        "Use an image between 2 and 16,384 pixels per side, up to 40 megapixels.",
-        400,
-      );
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = job.width;
-    canvas.height = job.height;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context)
       throw new ApiError(
@@ -229,9 +285,76 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
         503,
       );
     const aspect = job.width / job.height;
-    const baseWidth = Math.min(image.width, image.height * aspect),
-      baseHeight = baseWidth / aspect;
-    const draw = (t: number) => {
+    // Decode one original at a time; retain only small output-sized bitmaps.
+    // Six large uploads must not keep six full-resolution decodes in memory.
+    for (const file of files) {
+      checkVisible(signal);
+      let original: ImageBitmap;
+      try {
+        original = await createImageBitmap(file, {
+          imageOrientation: "from-image",
+        });
+      } catch {
+        throw new ApiError(
+          "An image cannot be decoded. Try another JPEG, PNG, or WebP image.",
+          400,
+        );
+      }
+      const scaled = document.createElement("canvas");
+      try {
+        checkVisible(signal);
+        if (
+          original.width < 2 ||
+          original.height < 2 ||
+          Math.max(original.width, original.height) > 16384 ||
+          original.width * original.height > 40_000_000
+        )
+          throw new ApiError(
+            "Use images between 2 and 16,384 pixels per side, up to 40 megapixels each.",
+            400,
+          );
+        scaled.width = Math.ceil(job.width * 1.16);
+        scaled.height = Math.ceil(job.height * 1.16);
+        const scaledContext = scaled.getContext("2d", { alpha: false });
+        if (!scaledContext)
+          throw new ApiError(
+            "The browser could not prepare your images. Close other tabs and try again.",
+            503,
+          );
+        const width = Math.min(original.width, original.height * aspect);
+        const height = width / aspect;
+        scaledContext.drawImage(
+          original,
+          (original.width - width) / 2,
+          (original.height - height) / 2,
+          width,
+          height,
+          0,
+          0,
+          scaled.width,
+          scaled.height,
+        );
+        images.push(await createImageBitmap(scaled));
+      } finally {
+        original.close();
+        scaled.width = scaled.height = 0;
+      }
+    }
+    checkVisible(signal);
+    if (parentBlob) {
+      parentUrl = URL.createObjectURL(parentBlob);
+      parentVideo = document.createElement("video");
+      parentVideo.preload = "auto";
+      parentVideo.muted = true;
+      parentVideo.playsInline = true;
+      parentVideo.src = parentUrl;
+      await loadParent(parentVideo, signal);
+      checkVisible(signal);
+      context.drawImage(parentVideo, 0, 0, canvas.width, canvas.height);
+    }
+    const draw = (source: ImageBitmap | HTMLCanvasElement, t: number) => {
+      const baseWidth = Math.min(source.width, source.height * aspect);
+      const baseHeight = baseWidth / aspect;
       const zoom =
         job.motion === "zoom-in"
           ? 1 + 0.16 * t
@@ -240,22 +363,18 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
             : job.motion.startsWith("pan-")
               ? 1.16
               : 1;
-      const width = baseWidth / zoom,
-        height = baseHeight / zoom;
+      const width = baseWidth / zoom;
+      const height = baseHeight / zoom;
       const position =
         job.motion === "pan-left"
           ? 1 - t
           : job.motion === "pan-right"
             ? t
             : 0.5;
-      const x = (image.width - baseWidth) / 2 + (baseWidth - width) * position;
-      const y = (image.height - height) / 2;
-      context.fillStyle = "#000";
-      context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(
-        image,
-        x,
-        y,
+        source,
+        (source.width - baseWidth) / 2 + (baseWidth - width) * position,
+        (source.height - height) / 2,
         width,
         height,
         0,
@@ -264,7 +383,7 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
         canvas.height,
       );
     };
-    draw(0);
+    if (!parentVideo) draw(images[0], 0);
     stream = canvas.captureStream(24);
     const recorder = new MediaRecorder(stream, {
       mimeType: job.mimeType,
@@ -273,16 +392,20 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
     job.mimeType = recorder.mimeType || job.mimeType;
     return await new Promise<Blob>((resolve, reject) => {
       const chunks: BlobPart[] = [];
-      let frame = 0,
-        stopTimer = 0,
-        started = 0,
-        settled = false;
+      let frame = 0;
+      let stopTimer = 0;
+      let appendedAt = 0;
+      let playingParent = Boolean(parentVideo);
+      let settled = false;
       const cleanup = () => {
         window.cancelAnimationFrame(frame);
         window.clearTimeout(stopTimer);
         window.clearTimeout(timeout);
         signal.removeEventListener("abort", abort);
         document.removeEventListener("visibilitychange", visibility);
+        parentVideo?.removeEventListener("ended", parentEnded);
+        parentVideo?.removeEventListener("error", parentFailed);
+        parentVideo?.pause();
         recorder.ondataavailable = null;
         recorder.onstop = null;
         recorder.onerror = null;
@@ -312,6 +435,40 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
             ),
           );
       };
+      const parentFailed = () =>
+        fail(
+          new ApiError(
+            "The saved video could not be played for extension. Try generating it again.",
+            400,
+          ),
+        );
+      const parentEnded = () => {
+        if (settled || !playingParent || !parentVideo) return;
+        try {
+          // Preserve every parent scene, then use its actual final frame if no
+          // new images were supplied. No original uploads need to be retained.
+          if (!images.length) {
+            continuation = document.createElement("canvas");
+            continuation.width = job.width;
+            continuation.height = job.height;
+            const finalContext = continuation.getContext("2d", {
+              alpha: false,
+            });
+            if (!finalContext) throw new Error("Canvas unavailable");
+            finalContext.drawImage(parentVideo, 0, 0, job.width, job.height);
+          }
+          playingParent = false;
+          appendedAt = performance.now();
+          parentVideo.pause();
+        } catch {
+          fail(
+            new ApiError(
+              "The final video frame could not be prepared for extension. Try adding new images.",
+              400,
+            ),
+          );
+        }
+      };
       const timeout = window.setTimeout(
         () =>
           fail(
@@ -320,27 +477,45 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
               503,
             ),
           ),
-        job.duration * 1000 + 8000,
+        job.duration * 1000 + 12000,
       );
       const tick = (now: number) => {
         if (settled) return;
-        const t = Math.min(
-          1,
-          Math.max(0, (now - started) / (job.duration * 1000)),
-        );
+        let elapsed = 0;
+        let complete = false;
         try {
-          draw(t);
+          if (playingParent && parentVideo) {
+            context.drawImage(parentVideo, 0, 0, canvas.width, canvas.height);
+            elapsed = Math.min(parentDuration, parentVideo.currentTime);
+            if (parentVideo.ended) parentEnded();
+          } else {
+            const t = Math.min(
+              1,
+              Math.max(0, (now - appendedAt) / (job.addedDuration * 1000)),
+            );
+            const count = images.length || 1;
+            const index = Math.min(count - 1, Math.floor(t * count));
+            const source = images[index] ?? continuation;
+            if (!source) throw new Error("Missing video scene");
+            draw(source, Math.min(1, t * count - index));
+            elapsed = parentDuration + t * job.addedDuration;
+            complete = t >= 1;
+          }
         } catch {
           fail(
             new ApiError(
-              "The image could not be rendered. Try another image.",
+              "A video scene could not be rendered. Try another image.",
               400,
             ),
           );
           return;
         }
-        job.progress = Math.max(job.progress, Math.min(98, Math.round(t * 98)));
-        if (t < 1) frame = window.requestAnimationFrame(tick);
+        if (settled) return;
+        job.progress = Math.max(
+          job.progress,
+          Math.min(98, Math.round((elapsed / job.duration) * 98)),
+        );
+        if (!complete) frame = window.requestAnimationFrame(tick);
         else
           stopTimer = window.setTimeout(() => {
             if (!settled && recorder.state === "recording") recorder.stop();
@@ -371,12 +546,23 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
           );
       };
       recorder.onstart = () => {
-        started = performance.now();
+        appendedAt = performance.now();
+        if (parentVideo) {
+          parentVideo.addEventListener("ended", parentEnded, { once: true });
+          parentVideo.addEventListener("error", parentFailed, { once: true });
+          parentVideo
+            .play()
+            .then(() => {
+              if (settled) parentVideo?.pause();
+            })
+            .catch(parentFailed);
+        }
         frame = window.requestAnimationFrame(tick);
       };
       signal.addEventListener("abort", abort, { once: true });
       document.addEventListener("visibilitychange", visibility);
       if (signal.aborted) abort();
+      else if (document.hidden) visibility();
       else {
         try {
           recorder.start(250);
@@ -392,7 +578,15 @@ async function record({ file, job, controller }: Work): Promise<Blob> {
     });
   } finally {
     stream?.getTracks().forEach((track) => track.stop());
-    image.close();
+    images.forEach((image) => image.close());
+    if (parentVideo) {
+      parentVideo.pause();
+      parentVideo.removeAttribute("src");
+      parentVideo.load();
+    }
+    if (parentUrl) URL.revokeObjectURL(parentUrl);
+    if (continuation) continuation.width = continuation.height = 0;
+    canvas.width = canvas.height = 0;
   }
 }
 
@@ -435,9 +629,11 @@ function pump() {
         entry.job.warning = storageMessage;
       }
       checkCancelled(entry.controller.signal);
+      completedBlobs.set(id, blob);
       entry.job.status = "completed";
       entry.job.progress = 100;
     } catch (error) {
+      completedBlobs.delete(id);
       if (entry.job.fileUrl) {
         URL.revokeObjectURL(entry.job.fileUrl);
         entry.job.fileUrl = null;
@@ -477,6 +673,9 @@ export async function browserRequest<T>(
       ...encoding,
       storage: storageWarning ? "session" : "persistent",
       storageWarning,
+      maxImages: MAX_IMAGES,
+      maxTotalDuration: MAX_TOTAL_DURATION,
+      maxPromptLength: MAX_PROMPT_LENGTH,
     } as T;
   }
   if (method === "GET" && path === "/api/videos") {
@@ -496,22 +695,58 @@ export async function browserRequest<T>(
     const form = options.body;
     if (!(form instanceof FormData))
       throw new ApiError("Upload an image and video settings.", 400);
-    const file = form.get("image");
-    if (
-      !(file instanceof File) ||
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
-    )
-      throw new ApiError("Choose a JPEG, PNG, or WebP image.", 400);
-    if (file.size > 20 * 1024 * 1024)
-      throw new ApiError("Image is too large. Maximum size is 20 MB.", 413);
+    const parentId = form.get("parentId") || null;
+    if (parentId !== null && typeof parentId !== "string")
+      throw new ApiError("Choose a completed video to extend.", 400);
+    const parent = parentId ? jobs.get(parentId) : undefined;
+    const parentBlob = parentId ? completedBlobs.get(parentId) : undefined;
+    if (parentId && (!parent || parent.status !== "completed" || !parentBlob))
+      throw new ApiError(
+        "The original video is unavailable. Choose a completed video from your library.",
+        404,
+      );
+    const uploads = form.getAll("image");
+    if ((!parent && uploads.length < 1) || uploads.length > MAX_IMAGES)
+      throw new ApiError(
+        `Choose between 1 and ${MAX_IMAGES} images, or extend a video without new images.`,
+        400,
+      );
+    const files: File[] = [];
+    let uploadSize = 0;
+    for (const file of uploads) {
+      if (
+        !(file instanceof File) ||
+        !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+      )
+        throw new ApiError("Choose JPEG, PNG, or WebP images.", 400);
+      if (!file.size || file.size > 20 * 1024 * 1024)
+        throw new ApiError(
+          "Each image must be nonempty and no larger than 20 MB.",
+          413,
+        );
+      uploadSize += file.size;
+      files.push(file);
+    }
+    if (uploadSize > 60 * 1024 * 1024)
+      throw new ApiError(
+        "The selected images exceed the 60 MB total upload limit.",
+        413,
+      );
+    const rawPrompt = form.get("prompt") ?? "";
+    if (typeof rawPrompt !== "string" || rawPrompt.length > MAX_PROMPT_LENGTH)
+      throw new ApiError(
+        `Keep your prompt within ${MAX_PROMPT_LENGTH} characters.`,
+        400,
+      );
+    const prompt = rawPrompt.trim();
     const motion = form.get("motion") ?? "zoom-in",
       format = form.get("format") ?? "landscape",
       duration = form.get("duration") ?? "5";
     if (
       typeof motion !== "string" ||
       !motions.includes(motion) ||
-      typeof format !== "string" ||
-      !Object.hasOwn(sizes, format) ||
+      (!parent &&
+        (typeof format !== "string" || !Object.hasOwn(sizes, format))) ||
       typeof duration !== "string" ||
       !["3", "5", "10"].includes(duration)
     )
@@ -519,30 +754,45 @@ export async function browserRequest<T>(
         "Choose a supported motion, format, and duration.",
         400,
       );
+    const addedDuration = Number(duration);
+    const parentDuration = parent?.duration ?? 0;
+    if (parentDuration + addedDuration > MAX_TOTAL_DURATION)
+      throw new ApiError(
+        `An extended video can be at most ${MAX_TOTAL_DURATION} seconds. Choose a shorter extension.`,
+        400,
+      );
     const encoding = recorderType();
     reservations += 1;
     try {
-      const magic = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-      const png = [137, 80, 78, 71, 13, 10, 26, 10].every(
-        (value, index) => magic[index] === value,
-      );
-      const jpeg = magic[0] === 255 && magic[1] === 216 && magic[2] === 255;
-      const webp =
-        new TextDecoder().decode(magic.slice(0, 4)) === "RIFF" &&
-        new TextDecoder().decode(magic.slice(8)) === "WEBP";
-      if (!png && !jpeg && !webp)
-        throw new ApiError("Choose a valid JPEG, PNG, or WebP image.", 400);
+      for (const file of files) {
+        const magic = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+        const png = [137, 80, 78, 71, 13, 10, 26, 10].every(
+          (value, index) => magic[index] === value,
+        );
+        const jpeg = magic[0] === 255 && magic[1] === 216 && magic[2] === 255;
+        const webp =
+          new TextDecoder().decode(magic.slice(0, 4)) === "RIFF" &&
+          new TextDecoder().decode(magic.slice(8)) === "WEBP";
+        if (!png && !jpeg && !webp)
+          throw new ApiError("Choose valid JPEG, PNG, or WebP images.", 400);
+      }
       if (options.signal?.aborted)
         throw new ApiError("Request cancelled.", 499);
       const id = createId(),
-        [width, height] = sizes[format as Format];
+        [width, height] = parent
+          ? [parent.width, parent.height]
+          : sizes[format as Format];
       const job: Job = {
         id,
         status: "queued",
         progress: 0,
-        duration: Number(duration),
-        format: format as Format,
-        motion: motion as Motion,
+        duration: parentDuration + addedDuration,
+        addedDuration,
+        parentId,
+        prompt,
+        imageCount: files.length || 1,
+        format: parent?.format ?? (format as Format),
+        motion: resolvePromptMotion(prompt, motion as Motion),
         width,
         height,
         createdAt: new Date().toISOString(),
@@ -555,7 +805,13 @@ export async function browserRequest<T>(
         warning: storageWarning,
       };
       jobs.set(id, job);
-      work.set(id, { file, job, controller: new AbortController() });
+      work.set(id, {
+        files,
+        parentBlob,
+        parentDuration,
+        job,
+        controller: new AbortController(),
+      });
       queue.push(id);
       window.setTimeout(pump, 0);
       return { ...job } as T;
@@ -576,6 +832,7 @@ export async function browserRequest<T>(
     const entry = work.get(job.id);
     entry?.controller.abort();
     jobs.delete(job.id);
+    completedBlobs.delete(job.id);
     const queued = queue.indexOf(job.id);
     if (queued >= 0) queue.splice(queued, 1);
     if (entry?.running) await entry.running;

@@ -1,7 +1,8 @@
 # VANTA Motion Studio
 
-A browser-based image-to-video studio. Upload a photo, select camera motion,
-duration, and aspect ratio, then preview and download an actual H.264 MP4.
+A browser-based image-to-video studio. Arrange up to six photos, add a camera
+prompt, select duration and aspect ratio, then preview and download the video.
+After generation, an extension popup can append another scene to the result.
 
 ## Open without a server
 
@@ -11,7 +12,7 @@ styles, interface, example image, and video renderer in one file. It works
 without Node.js, FFmpeg, a web server, network access, or the environment's preview
 panel on the computer where you open it. Node/npm are needed only to build it.
 
-Choose **Try an example**, pick a duration, and select **Generate video**.
+Choose up to six images or **Try an example**, pick a duration, and select **Generate video**.
 Keep the tab visible while it records, then select **Download**. The browser
 prefers MP4/H.264 recording and uses WebM where MP4 recording is unavailable.
 The actual format appears in the app and its download extension.
@@ -56,11 +57,25 @@ by Vite. Keep both processes running while developing.
 
 ## Use
 
-1. Upload a JPG, PNG, or WebP image, or choose **Try an example**.
-2. Choose Push in, Pull out, Pan left, Pan right, or Still.
-3. Select 3, 5, or 10 seconds and landscape, portrait, or square format.
-4. Select **Generate video**, then play or download the result.
-5. **My videos** lists saved exports and allows downloading or deleting them.
+1. Select one to six JPG, PNG, or WebP images, or choose **Try an example**.
+2. Use the thumbnail arrows to arrange the playback order; remove or add images
+   as needed. Images share the selected total clip duration evenly.
+3. Add an optional **Prompt / camera direction**, such as “slowly pan left” or
+   “zoom out.” Recognized camera words select the move; other text stays as a
+   saved scene note. The first recognized move is used when several are present.
+   Selecting a different camera move clears a recognized prompt override.
+4. Select 3, 5, or 10 seconds total and landscape, portrait, or square format.
+5. Select **Generate video**. The completion popup offers **Generate extension**
+   or **Not now**. You can also download the completed video from the popup.
+6. To extend, add a new prompt and optionally one to six new images. With no new
+   images, the added scene starts from the parent video's final frame. Select
+   another 3, 5, or 10 seconds. The new download contains the original footage
+   followed by the added scene; the original remains in **My videos**.
+7. Extensions can be repeated up to 60 seconds total. Reopen the extension popup
+   using **Extend video** or the plus button on a saved video.
+
+The prompt field directs supported camera motion; it does not synthesize new AI
+subject movement. This applies to both the server and standalone versions.
 
 Landscape exports at 1280 × 720, portrait at 720 × 1280, and square at 720 × 720.
 Videos are silent at 24 fps. Images fill the selected aspect ratio using a
@@ -80,8 +95,8 @@ This is a personal workspace app: it has no user accounts or per-user isolation.
 Anyone with access to its server can see or remove its saved videos. Add
 authentication before sharing it as a public multi-user service.
 
-The backend accepts at most 20 MB per upload and 40 megapixels per image, with a
-maximum of 16,384 pixels per side. A single rendering worker and a bounded queue
+The backend accepts at most six images, 20 MB per image, 60 MB combined, and
+40 megapixels per image, with a maximum of 16,384 pixels per side. A single rendering worker and a bounded queue
 limit CPU and memory use. Camera presets and paths are controlled by the server.
 FFprobe validates image signatures and video output; the renderer uses restricted
 local-file protocols and bounded subprocesses. No external generation API is used.
@@ -103,6 +118,11 @@ For a functional browser check, generate an example video, play it, download it,
 reload My videos, then delete it. A successful health response from
 `GET /api/health` alone does not verify rendering.
 
+`python3 scripts/test-storyboard.py` checks the standalone three-image storyboard,
+prompt, completion popup, and actual extended video. It requires the environment's
+Python Playwright, Chromium, and FFmpeg tools. Managed browser policies stay unchanged;
+the exact standalone HTML is tested with an offline document route.
+
 The GitHub Actions **Validate browser video studio** workflow installs frozen
 dependencies, runs the real integration tests, and builds the client on Linux.
 
@@ -111,7 +131,8 @@ dependencies, runs the real integration tests, and builds the client on Linux.
 | Request | Purpose |
 | --- | --- |
 | `GET /api/health` | Server status |
-| `POST /api/videos` | Multipart `image`, `motion`, `duration`, `format`; returns a job |
+| `POST /api/videos` | Multipart repeated `image` (1–6), `prompt`, `motion`, `duration`, `format`; returns a job |
+| `POST /api/videos` with `parentId` | Append a scene to a completed video; new images are optional, format is inherited |
 | `GET /api/videos/:id` | Poll job status and render progress |
 | `GET /api/videos` | List completed videos |
 | `GET /api/videos/:id/file` | Stream/download MP4, including byte ranges |

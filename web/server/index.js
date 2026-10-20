@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
+import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
 
@@ -26,10 +27,10 @@ export async function createApp(options = {}) {
     }),
     limits: {
       fileSize: 20 * 1024 * 1024,
-      files: 1,
+      files: MAX_IMAGES,
       fields: 8,
-      parts: 10,
-      fieldSize: 1024,
+      parts: 16,
+      fieldSize: 4096,
     },
     fileFilter: (_req, file, callback) => {
       if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
@@ -39,7 +40,7 @@ export async function createApp(options = {}) {
       }
       callback(null, true);
     },
-  }).single("image");
+  }).array("image", MAX_IMAGES);
 
   app.get("/api/health", (_req, res) =>
     res.json({ status: "ok", mode: "local" }),
@@ -59,13 +60,34 @@ export async function createApp(options = {}) {
       await new Promise((resolve, reject) =>
         upload(req, res, (error) => (error ? reject(error) : resolve())),
       );
-      if (!req.file)
-        throw new RenderError("Upload an image to generate a video.", 400);
       const {
         motion = "zoom-in",
         duration = "5",
         format = "landscape",
+        prompt = "",
+        parentId = null,
       } = req.body;
+      const files = req.files || [];
+      if (!files.length && !parentId)
+        throw new RenderError(
+          "Upload at least one image to generate a video.",
+          400,
+        );
+      if (
+        files.reduce((total, file) => total + file.size, 0) >
+        60 * 1024 * 1024
+      )
+        throw new RenderError(
+          "The combined images are too large. Maximum total size is 60 MB.",
+          413,
+        );
+      if (typeof prompt !== "string" || prompt.length > MAX_PROMPT_LENGTH)
+        throw new RenderError(
+          `Keep your prompt under ${MAX_PROMPT_LENGTH + 1} characters.`,
+          400,
+        );
+      if (parentId !== null && (typeof parentId !== "string" || !parentId))
+        throw new RenderError("Choose a completed video to extend.", 400);
       if (!MOTIONS.includes(motion))
         throw new RenderError("Choose a supported camera motion.", 400);
       if (!["3", "5", "10"].includes(duration))
@@ -76,14 +98,17 @@ export async function createApp(options = {}) {
           400,
         );
       const job = await service.enqueue(
-        req.file,
-        { motion, duration: Number(duration), format },
+        files,
+        { motion, duration: Number(duration), format, prompt, parentId },
         controller.signal,
       );
       res.status(202).json(service.publicJob(job));
     } catch (error) {
-      if (req.file?.path)
-        await rm(req.file.path, { force: true }).catch(() => {});
+      await Promise.all(
+        (req.files || []).map((file) =>
+          rm(file.path, { force: true }).catch(() => {}),
+        ),
+      );
       next(error);
     } finally {
       release?.();
@@ -137,23 +162,19 @@ export async function createApp(options = {}) {
     if (res.headersSent) return;
     if (error instanceof multer.MulterError) {
       const tooLarge = error.code === "LIMIT_FILE_SIZE";
-      return res
-        .status(tooLarge ? 413 : 400)
-        .json({
-          error: tooLarge
-            ? "Image is too large. Maximum size is 20 MB."
-            : "Upload one image and the video settings.",
-        });
+      return res.status(tooLarge ? 413 : 400).json({
+        error: tooLarge
+          ? "Image is too large. Maximum size is 20 MB."
+          : `Upload up to ${MAX_IMAGES} images and the video settings.`,
+      });
     }
     const status = error instanceof RenderError ? error.status : 500;
-    res
-      .status(status === 499 ? 400 : status)
-      .json({
-        error:
-          error instanceof RenderError
-            ? error.message
-            : "Something went wrong. Please try again.",
-      });
+    res.status(status === 499 ? 400 : status).json({
+      error:
+        error instanceof RenderError
+          ? error.message
+          : "Something went wrong. Please try again.",
+    });
   });
   return app;
 }
@@ -166,7 +187,9 @@ if (
   const port = Number(process.env.PORT || 3001);
   const server = app.listen(port, "0.0.0.0", (error) => {
     if (error) {
-      console.error(`Unable to start video server on port ${port}: ${error.message}`);
+      console.error(
+        `Unable to start video server on port ${port}: ${error.message}`,
+      );
       process.exitCode = 1;
       void app.locals.videoService.close();
       return;

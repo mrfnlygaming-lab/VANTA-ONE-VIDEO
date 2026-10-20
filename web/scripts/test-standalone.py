@@ -40,6 +40,14 @@ def track_states(page):
 def stored(page):
     return page.evaluate('''() => new Promise((resolve,reject)=>{const r=indexedDB.open('vanta-motion-studio',1);r.onsuccess=()=>{const db=r.result;const tx=db.transaction('videos');const get=tx.objectStore('videos').getAll();get.onsuccess=()=>{resolve(get.result.map(x=>({id:x.id,size:x.blob.size,job:x.job})));db.close()};get.onerror=()=>reject(get.error)};r.onerror=()=>reject(r.error)})''')
 
+def dismiss_completion_popup(page):
+    popup = page.get_by_role('dialog', name='Keep the story going?', exact=True)
+    popup.wait_for(state='visible', timeout=20000)
+    assert popup.get_by_role('heading', name='Keep the story going?', exact=True).is_visible()
+    popup.get_by_role('button', name='Not now', exact=True).click()
+    popup.wait_for(state='detached')
+    return {'auto_opened': True, 'dismissed_with_not_now': True}
+
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path=args.browser,headless=True,args=['--no-sandbox'])
     context = browser.new_context(viewport={'width':1440,'height':1000},accept_downloads=True,offline=True)
@@ -66,6 +74,7 @@ with sync_playwright() as p:
         page.locator('#motion').select_option('pan-right')
         page.get_by_role('button',name='3s',exact=True).click()
         page.get_by_role('button',name='Generate video',exact=True).click()
+        results['completion_popup'] = dismiss_completion_popup(page)
         page.get_by_role('link',name='Download',exact=True).wait_for(timeout=20000)
         video=page.get_by_label('Generated video',exact=True)
         page.wait_for_function('document.querySelector("video")?.readyState>=1')
@@ -167,6 +176,7 @@ with sync_playwright() as p:
         opaque.get_by_alt_text('Your starting frame',exact=True).wait_for()
         opaque.get_by_role('button',name='3s',exact=True).click()
         opaque.get_by_role('button',name='Generate video',exact=True).click()
+        results['opaque_completion_popup'] = dismiss_completion_popup(opaque)
         opaque.get_by_role('link',name='Download',exact=True).wait_for(timeout=20000)
         results['opaque_storage_warning']=opaque.get_by_role('alert').inner_text()
         assert 'Browser storage is unavailable or full.' in results['opaque_storage_warning']

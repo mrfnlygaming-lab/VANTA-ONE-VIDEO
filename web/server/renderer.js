@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { open } from "node:fs/promises";
+import { open, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 export class RenderError extends Error {
   constructor(message, status = 500) {
@@ -180,12 +181,33 @@ export const MOTIONS = [
   "pan-right",
   "still",
 ];
+const COLOR_FILTER =
+  "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+const COLOR_OPTIONS = [
+  "-color_range",
+  "tv",
+  "-colorspace",
+  "bt709",
+  "-color_primaries",
+  "bt709",
+  "-color_trc",
+  "bt709",
+];
 
 export async function renderVideo(
-  { imagePath, outputPath, demuxer, motion, duration, width, height },
+  {
+    imagePath,
+    outputPath,
+    demuxer,
+    motion,
+    duration,
+    width,
+    height,
+    frames: requestedFrames,
+  },
   { ffmpegPath = "ffmpeg", ffprobePath = "ffprobe", signal, onProgress } = {},
 ) {
-  const frames = duration * 24;
+  const frames = requestedFrames ?? Math.round(duration * 24);
   const position = `on/${frames - 1}`;
   let zoom = "1";
   let x = "iw/2-iw/zoom/2";
@@ -207,7 +229,7 @@ export async function renderVideo(
     `scale=${width * 2}:${height * 2}[image];color=c=black:s=${width * 2}x${height * 2}:r=24[background];[background][image]overlay=shortest=1`,
     `zoompan=z='${zoom}':x='${x}':y='${y}':d=${frames}:s=${width}x${height}:fps=24`,
     "setsar=1",
-    "format=yuv420p",
+    COLOR_FILTER,
   ].join(",");
   await runProcess(
     ffmpegPath,
@@ -244,6 +266,7 @@ export async function renderVideo(
       "2",
       "-pix_fmt",
       "yuv420p",
+      ...COLOR_OPTIONS,
       "-movflags",
       "+faststart",
       "-progress",
@@ -253,6 +276,18 @@ export async function renderVideo(
     ],
     { signal, timeout: 120_000, onProgress },
   );
+  await verifyVideo(
+    outputPath,
+    { width, height, duration: frames / 24, frames },
+    { ffprobePath, signal },
+  );
+}
+
+async function verifyVideo(
+  outputPath,
+  { width, height, duration, frames },
+  { ffprobePath = "ffprobe", signal } = {},
+) {
   const result = await runProcess(
     ffprobePath,
     [
@@ -263,7 +298,7 @@ export async function renderVideo(
       "-f",
       "mov",
       "-show_entries",
-      "stream=codec_name,width,height,r_frame_rate,nb_frames:format=duration",
+      "stream=codec_name,width,height,r_frame_rate,nb_frames,color_range,color_space,color_transfer,color_primaries:format=duration",
       "-of",
       "json",
       outputPath,
@@ -291,4 +326,212 @@ export async function renderVideo(
       "The generated video could not be verified. Please try again.",
     );
   }
+  return output;
+}
+
+export async function renderSequence(
+  job,
+  { ffmpegPath = "ffmpeg", ffprobePath = "ffprobe", signal, onProgress } = {},
+) {
+  const {
+    workDir,
+    parentPath,
+    addedDuration,
+    width,
+    height,
+    motion,
+    outputPath,
+  } = job;
+  const options = { ffmpegPath, ffprobePath, signal };
+  let images = job.images;
+  if (!images.length) {
+    const imagePath = path.join(workDir, "last-frame.png");
+    // Reverse only the final quarter-second to obtain the actual final frame with bounded memory.
+    await runProcess(
+      ffmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-threads",
+        "2",
+        "-protocol_whitelist",
+        "file,pipe",
+        "-f",
+        "mov",
+        "-sseof",
+        "-0.25",
+        "-i",
+        parentPath,
+        "-filter_threads",
+        "1",
+        "-vf",
+        "reverse",
+        "-frames:v",
+        "1",
+        "-threads",
+        "1",
+        imagePath,
+      ],
+      { signal, timeout: 30_000 },
+    );
+    images = [
+      {
+        imagePath,
+        ...(await inspectImage(imagePath, { ffprobePath, signal })),
+      },
+    ];
+  }
+  const totalFrames = Math.round(addedDuration * 24);
+  const segments = [];
+  if (parentPath) {
+    const parentDuration = job.duration - addedDuration;
+    const metadata = await verifyVideo(
+      parentPath,
+      {
+        width,
+        height,
+        duration: parentDuration,
+        frames: Math.round(parentDuration * 24),
+      },
+      options,
+    );
+    const stream = metadata.streams[0];
+    const needsNormalization =
+      stream.color_range !== "tv" ||
+      stream.color_space !== "bt709" ||
+      stream.color_transfer !== "bt709" ||
+      stream.color_primaries !== "bt709";
+    if (needsNormalization) {
+      // Older saved videos may predate fixed color tagging. Preserve their frames while
+      // matching new segments so H.264 decoders never switch interpretation mid-video.
+      const normalizedPath = path.join(workDir, "parent-normalized.mp4");
+      await runProcess(
+        ffmpegPath,
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-y",
+          "-threads",
+          "2",
+          "-protocol_whitelist",
+          "file,pipe",
+          "-f",
+          "mov",
+          "-i",
+          parentPath,
+          "-filter_threads",
+          "1",
+          "-vf",
+          COLOR_FILTER,
+          "-map",
+          "0:v:0",
+          "-an",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "18",
+          "-threads",
+          "2",
+          "-pix_fmt",
+          "yuv420p",
+          ...COLOR_OPTIONS,
+          "-fps_mode",
+          "passthrough",
+          "-movflags",
+          "+faststart",
+          normalizedPath,
+        ],
+        { signal, timeout: 120_000 },
+      );
+      await verifyVideo(
+        normalizedPath,
+        {
+          width,
+          height,
+          duration: parentDuration,
+          frames: Math.round(parentDuration * 24),
+        },
+        options,
+      );
+      segments.push(normalizedPath);
+    } else segments.push(parentPath);
+  }
+  let completedFrames = 0;
+  for (let index = 0; index < images.length; index += 1) {
+    const frames =
+      Math.floor(totalFrames / images.length) +
+      (index < totalFrames % images.length ? 1 : 0);
+    const segmentPath = path.join(workDir, `segment-${index}.mp4`);
+    const offset = (completedFrames / 24) * 1_000_000;
+    await renderVideo(
+      {
+        ...images[index],
+        outputPath: segmentPath,
+        motion,
+        duration: frames / 24,
+        frames,
+        width,
+        height,
+      },
+      {
+        ...options,
+        onProgress: (time) => onProgress?.(offset + time),
+      },
+    );
+    segments.push(segmentPath);
+    completedFrames += frames;
+  }
+  const manifestPath = path.join(workDir, "sequence.ffconcat");
+  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  await writeFile(
+    manifestPath,
+    `ffconcat version 1.0\n${segments.map((file) => `file ${quote(file)}`).join("\n")}\n`,
+  );
+  await runProcess(
+    ffmpegPath,
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-y",
+      "-threads",
+      "2",
+      "-protocol_whitelist",
+      "file,pipe",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      manifestPath,
+      "-map",
+      "0:v:0",
+      "-an",
+      "-c:v",
+      "copy",
+      "-movflags",
+      "+faststart",
+      outputPath,
+    ],
+    { signal, timeout: 60_000 },
+  );
+  await verifyVideo(
+    outputPath,
+    {
+      width,
+      height,
+      duration: job.duration,
+      frames: Math.round(job.duration * 24),
+    },
+    options,
+  );
+  onProgress?.(addedDuration * 1_000_000);
 }

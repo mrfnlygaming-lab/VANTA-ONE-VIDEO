@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent } from "react";
 import { request as api, ApiError, runtime } from "./runtime";
+import ImageSelector, { validateImages } from "./ImageSelector";
+import {
+  MAX_PROMPT_LENGTH,
+  MAX_TOTAL_DURATION,
+  promptMotion,
+} from "../shared/prompt.js";
 import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowLeftRight,
   ArrowRight,
   ArrowUpRight,
-  Check,
   ChevronDown,
   CircleHelp,
   Clapperboard,
   Clock3,
   Film,
-  ImagePlus,
   Layers3,
   LoaderCircle,
   Monitor,
@@ -26,7 +29,6 @@ import {
   Sparkles,
   Square,
   Trash2,
-  Upload,
   X,
   ZoomIn,
   ZoomOut,
@@ -50,6 +52,10 @@ type Video = {
   filename?: string;
   persisted?: boolean;
   warning?: string | null;
+  prompt?: string;
+  parentId?: string | null;
+  addedDuration?: number;
+  imageCount?: number;
 };
 const motions = [
   {
@@ -96,7 +102,8 @@ const formats: {
 
 export default function App() {
   const [page, setPage] = useState<"create" | "library">("create");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
@@ -106,17 +113,26 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loadingImage, setLoadingImage] = useState(false);
-  const [dragging, setDragging] = useState(false);
+
   const [help, setHelp] = useState(false);
   const [online, setOnline] = useState(false);
   const [exportExtension, setExportExtension] = useState("mp4");
   const [previewMotion, setPreviewMotion] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const [extensionTarget, setExtensionTarget] = useState<Video | null>(null);
+  const [extensionPrompt, setExtensionPrompt] = useState("");
+  const [extensionDuration, setExtensionDuration] = useState(3);
+  const [extensionFiles, setExtensionFiles] = useState<File[]>([]);
+  const [loadingExtension, setLoadingExtension] = useState(false);
+  const extensionModal = useRef<HTMLElement>(null);
+  const offeredExtensions = useRef(new Set<string>());
+  const extensionVersion = useRef(0);
+  const file = files[0] ?? null;
   const modal = useRef<HTMLElement>(null);
   const sourceVersion = useRef(0);
   const active =
     submitting || job?.status === "queued" || job?.status === "processing";
-  const selectedMotion = motions.find((item) => item.id === motion)!;
+  const resolvedMotion = promptMotion(prompt) || motion;
+  const selectedMotion = motions.find((item) => item.id === resolvedMotion)!;
   const completed = job?.status === "completed" && job.fileUrl;
 
   const refreshVideos = () =>
@@ -215,45 +231,90 @@ export default function App() {
     };
   }, [help]);
 
-  async function selectFile(candidate?: File) {
-    if (!candidate || active) return;
+  async function selectFiles(candidates: File[]) {
+    if (!candidates.length || active) return;
     const version = ++sourceVersion.current;
     setError(null);
-    if (!["image/jpeg", "image/png", "image/webp"].includes(candidate.type)) {
-      setError("Choose a JPG, PNG, or WebP image.");
-      return;
-    }
-    if (candidate.size > 20 * 1024 * 1024) {
-      setError("This image is too large. Choose one smaller than 20 MB.");
-      return;
-    }
     setLoadingImage(true);
     try {
-      const image = await createImageBitmap(candidate);
-      const tooLarge =
-        image.width * image.height > 40_000_000 ||
-        Math.max(image.width, image.height) > 16384;
-      image.close();
-      if (tooLarge)
-        throw new Error(
-          "Choose an image under 40 megapixels and 16,384 pixels per side.",
-        );
+      const next = await validateImages(candidates, files);
       if (version === sourceVersion.current) {
-        setFile(candidate);
+        setFiles(next);
         setJob(null);
         setPreviewMotion(false);
       }
     } catch (err) {
       if (version === sourceVersion.current)
         setError(
-          err instanceof Error
-            ? err.message
-            : "This image could not be opened. Try another file.",
+          err instanceof Error ? err.message : "Could not open the images.",
         );
     } finally {
       if (version === sourceVersion.current) setLoadingImage(false);
     }
   }
+
+  async function selectExtensionFiles(candidates: File[]) {
+    if (!candidates.length || active) return;
+    const version = ++extensionVersion.current;
+    setLoadingExtension(true);
+    setError(null);
+    try {
+      const next = await validateImages(candidates, extensionFiles);
+      if (version === extensionVersion.current) setExtensionFiles(next);
+    } catch (err) {
+      if (version === extensionVersion.current)
+        setError(
+          err instanceof Error ? err.message : "Could not open the images.",
+        );
+    } finally {
+      if (version === extensionVersion.current) setLoadingExtension(false);
+    }
+  }
+
+  function openExtension(video: Video) {
+    if (video.duration + 3 > MAX_TOTAL_DURATION) return;
+    extensionVersion.current++;
+    setLoadingExtension(false);
+    setExtensionFiles([]);
+    setExtensionPrompt("");
+    setExtensionDuration(3);
+    setExtensionTarget(video);
+  }
+
+  useEffect(() => {
+    if (job?.status === "completed" && !offeredExtensions.current.has(job.id)) {
+      offeredExtensions.current.add(job.id);
+      openExtension(job);
+    }
+  }, [job?.id, job?.status]);
+
+  useEffect(() => {
+    if (!extensionTarget) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    extensionModal.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !active) setExtensionTarget(null);
+      if (event.key !== "Tab") return;
+      const controls = extensionModal.current?.querySelectorAll<HTMLElement>(
+        "button:not([disabled]),input:not([disabled]):not([hidden]),textarea:not([disabled]),select:not([disabled]),a[href]",
+      );
+      if (!controls?.length) return;
+      const first = controls[0],
+        last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      previousFocus?.focus();
+    };
+  }, [extensionTarget?.id, active]);
 
   async function useExample() {
     setLoadingImage(true);
@@ -275,9 +336,9 @@ export default function App() {
           "image/png",
         ),
       );
-      await selectFile(
+      await selectFiles([
         new File([blob], "Alpine-still.png", { type: "image/png" }),
-      );
+      ]);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not load the example.",
@@ -294,7 +355,8 @@ export default function App() {
     setPreviewMotion(false);
     try {
       const data = new FormData();
-      data.append("image", file);
+      files.forEach((image) => data.append("image", image));
+      data.append("prompt", prompt.trim());
       data.append("motion", motion);
       data.append("format", format);
       data.append("duration", String(duration));
@@ -308,10 +370,41 @@ export default function App() {
     }
   }
 
+  async function extendVideo() {
+    if (!extensionTarget || active || loadingExtension) return;
+    setSubmitting(true);
+    setError(null);
+    setPreviewMotion(false);
+    try {
+      const data = new FormData();
+      extensionFiles.forEach((image) => data.append("image", image));
+      data.append("parentId", extensionTarget.id);
+      data.append("prompt", extensionPrompt.trim());
+      data.append("motion", extensionTarget.motion);
+      data.append("format", extensionTarget.format);
+      data.append("duration", String(extensionDuration));
+      const next = await api<Video>("/api/videos", {
+        method: "POST",
+        body: data,
+      });
+      setFormat(extensionTarget.format);
+      setJob(next);
+      setPage("create");
+      setExtensionTarget(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not extend the video.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function removeVideo(video: Video) {
     try {
       await api(`/api/videos/${video.id}`, { method: "DELETE" });
       if (job?.id === video.id) setJob(null);
+      if (extensionTarget?.id === video.id) setExtensionTarget(null);
       await refreshVideos();
     } catch (err) {
       setError(
@@ -320,15 +413,6 @@ export default function App() {
     }
   }
 
-  function drop(event: DragEvent) {
-    event.preventDefault();
-    setDragging(false);
-    void selectFile(event.dataTransfer.files[0]);
-  }
-  function upload(event: ChangeEvent<HTMLInputElement>) {
-    void selectFile(event.target.files?.[0]);
-    event.target.value = "";
-  }
   function newVideo() {
     setPage("create");
     if (!active) {
@@ -443,84 +527,25 @@ export default function App() {
                 <section className="settings-panel" aria-label="Video settings">
                   <div className="section-title">
                     <h2>
-                      <span className="step">01</span> Starting frame
+                      <span className="step">01</span> Your images
                     </h2>
                     <span className="small-label">JPG, PNG, WEBP</span>
                   </div>
-                  <input
-                    ref={input}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    hidden
-                    onChange={upload}
-                  />
-                  <div
-                    className={`upload-area ${dragging ? "dragging" : ""} ${imageUrl ? "has-image" : ""}`}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      if (!active) setDragging(true);
+                  <ImageSelector
+                    files={files}
+                    onAdd={selectFiles}
+                    onChange={(next) => {
+                      sourceVersion.current++;
+                      setFiles(next);
+                      setJob(null);
+                      setPreviewMotion(false);
                     }}
-                    onDragLeave={() => setDragging(false)}
-                    onDrop={drop}
-                  >
-                    {imageUrl ? (
-                      <>
-                        <img src={imageUrl} alt="Your starting frame" />
-                        <div className="uploaded-overlay">
-                          <span>
-                            <Check size={13} /> Image ready
-                          </span>
-                          <button
-                            className="icon-button"
-                            disabled={active}
-                            aria-label="Remove image"
-                            onClick={() => {
-                              sourceVersion.current++;
-                              setFile(null);
-                              setJob(null);
-                            }}
-                          >
-                            <X size={15} />
-                          </button>
-                        </div>
-                        <button
-                          className="replace-image"
-                          disabled={active}
-                          onClick={() => input.current?.click()}
-                        >
-                          <Upload size={13} /> Replace image
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="upload-action"
-                        disabled={active || loadingImage}
-                        onClick={() => input.current?.click()}
-                      >
-                        <span className="upload-icon">
-                          {loadingImage ? (
-                            <LoaderCircle className="spin" size={25} />
-                          ) : (
-                            <ImagePlus size={26} />
-                          )}
-                        </span>
-                        <strong>
-                          {loadingImage
-                            ? "Opening your image…"
-                            : "Drop your image here"}
-                        </strong>
-                        <span>
-                          or <em>browse files</em> to get started
-                        </span>
-                        <small>
-                          Up to 20 MB · One image, endless perspectives
-                        </small>
-                      </button>
-                    )}
-                  </div>
+                    disabled={!!active}
+                    loading={loadingImage}
+                  />
                   <button
                     className="example-button"
-                    disabled={active || loadingImage}
+                    disabled={active || loadingImage || files.length >= 6}
                     onClick={useExample}
                   >
                     <img src={runtime.exampleImage} alt="" />
@@ -532,7 +557,51 @@ export default function App() {
                   <div className="section-divider" />
                   <div className="section-title">
                     <h2>
-                      <span className="step">02</span> Make it move
+                      <span className="step">02</span> Your prompt
+                    </h2>
+                    <span className="small-label">OPTIONAL</span>
+                  </div>
+                  <label className="field-label" htmlFor="video-prompt">
+                    Prompt / camera direction
+                  </label>
+                  <textarea
+                    id="video-prompt"
+                    className="prompt-input"
+                    rows={3}
+                    maxLength={MAX_PROMPT_LENGTH}
+                    disabled={!!active}
+                    value={prompt}
+                    onChange={(event) => {
+                      setPrompt(event.target.value);
+                      setJob(null);
+                      setPreviewMotion(false);
+                    }}
+                    placeholder="Slowly pan left across the landscape…"
+                  />
+                  <div className="prompt-examples">
+                    {["Zoom in", "Pan left", "Pan right"].map((text) => (
+                      <button
+                        key={text}
+                        disabled={!!active}
+                        onClick={() => {
+                          setPrompt(text);
+                          setJob(null);
+                        }}
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="prompt-explanation">
+                    {promptMotion(prompt)
+                      ? `Camera direction: ${selectedMotion.title}.`
+                      : "Camera words control movement; other details are saved as notes."}{" "}
+                    This mode does not generate AI subject motion.
+                  </p>
+                  <div className="section-divider" />
+                  <div className="section-title">
+                    <h2>
+                      <span className="step">03</span> Make it move
                     </h2>
                     <SlidersHorizontal size={15} className="muted" />
                   </div>
@@ -550,10 +619,11 @@ export default function App() {
                     <ChevronDown size={15} />
                     <select
                       id="motion"
-                      value={motion}
+                      value={resolvedMotion}
                       disabled={active}
                       onChange={(event) => {
                         setMotion(event.target.value as Motion);
+                        if (promptMotion(prompt)) setPrompt("");
                         setJob(null);
                         setPreviewMotion(false);
                       }}
@@ -567,7 +637,7 @@ export default function App() {
                   </div>
                   <div className="field-row">
                     <div>
-                      <span className="field-label">Duration</span>
+                      <span className="field-label">Total clip duration</span>
                       <div className="segmented">
                         {[3, 5, 10].map((seconds) => (
                           <button
@@ -673,7 +743,7 @@ export default function App() {
                       />
                     ) : (
                       <div
-                        className={`scene-frame ${previewMotion ? `animate ${motion}` : ""}`}
+                        className={`scene-frame ${previewMotion ? `animate ${resolvedMotion}` : ""}`}
                         style={
                           {
                             "--duration": `${duration}s`,
@@ -737,7 +807,7 @@ export default function App() {
                   <div className="preview-toolbar">
                     <div>
                       <span className="video-dot" />
-                      <span>{duration} sec</span>
+                      <span>{completed ? job.duration : duration} sec</span>
                       <span className="toolbar-separator" />{" "}
                       <span>
                         {formats.find((item) => item.id === format)?.ratio}
@@ -746,16 +816,26 @@ export default function App() {
                       <span>HD 720p</span>
                     </div>
                     {completed ? (
-                      <a
-                        className="download-button"
-                        href={job.fileUrl!}
-                        download={
-                          job.filename ||
-                          `vanta-${job.id}.${job.extension || "mp4"}`
-                        }
-                      >
-                        <ArrowDownToLine size={15} /> Download
-                      </a>
+                      <div className="preview-actions">
+                        {job.duration + 3 <= MAX_TOTAL_DURATION && (
+                          <button
+                            className="extend-button"
+                            onClick={() => openExtension(job)}
+                          >
+                            <Plus size={15} /> Extend video
+                          </button>
+                        )}
+                        <a
+                          className="download-button"
+                          href={job.fileUrl!}
+                          download={
+                            job.filename ||
+                            `vanta-${job.id}.${job.extension || "mp4"}`
+                          }
+                        >
+                          <ArrowDownToLine size={15} /> Download
+                        </a>
+                      </div>
                     ) : (
                       <button
                         className="preview-motion-button"
@@ -836,8 +916,10 @@ export default function App() {
                       <div className="video-card-details">
                         <div>
                           <h3>
-                            {motions.find((item) => item.id === video.motion)
-                              ?.title || "Camera motion"}
+                            {video.prompt ||
+                              motions.find((item) => item.id === video.motion)
+                                ?.title ||
+                              "Camera motion"}
                           </h3>
                           <p>
                             {video.duration}s · {video.width} × {video.height} ·{" "}
@@ -855,6 +937,16 @@ export default function App() {
                         >
                           <ArrowDownToLine size={17} />
                         </a>
+                        {video.duration + 3 <= MAX_TOTAL_DURATION && (
+                          <button
+                            className="icon-button"
+                            aria-label="Extend saved video"
+                            disabled={!!active}
+                            onClick={() => openExtension(video)}
+                          >
+                            <Plus size={17} />
+                          </button>
+                        )}
                         <button
                           className="icon-button danger"
                           aria-label="Delete video"
@@ -903,6 +995,128 @@ export default function App() {
           </footer>
         </main>
       </div>
+      {extensionTarget && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!active) setExtensionTarget(null);
+          }}
+        >
+          <section
+            ref={extensionModal}
+            className="help-modal extension-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="extension-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="icon-button modal-close"
+              disabled={!!active}
+              aria-label="Close extension popup"
+              onClick={() => setExtensionTarget(null)}
+            >
+              <X size={20} />
+            </button>
+            <span className="eyebrow">YOUR VIDEO IS READY</span>
+            <h2 id="extension-title">Keep the story going?</h2>
+            <p>
+              Your {extensionTarget.duration}-second video is saved. Add another
+              scene to make a longer video; your original stays available.
+            </p>
+            <label className="field-label" htmlFor="extension-prompt">
+              Extension prompt
+            </label>
+            <textarea
+              id="extension-prompt"
+              className="prompt-input"
+              rows={2}
+              maxLength={MAX_PROMPT_LENGTH}
+              value={extensionPrompt}
+              disabled={!!active}
+              onChange={(event) => setExtensionPrompt(event.target.value)}
+              placeholder="Continue with a slow zoom out…"
+            />
+            <p className="prompt-explanation">
+              Use zoom in, zoom out, pan left, pan right, or still to direct the
+              added scene.
+            </p>
+            <span className="field-label">Add images (optional)</span>
+            <ImageSelector
+              files={extensionFiles}
+              onAdd={selectExtensionFiles}
+              onChange={(next) => {
+                extensionVersion.current++;
+                setExtensionFiles(next);
+              }}
+              disabled={!!active}
+              loading={loadingExtension}
+              label="Add extension images"
+            />
+            <p className="prompt-explanation">
+              Leave empty to continue from the final frame, or add up to six
+              images in order.
+            </p>
+            <span className="field-label">Extend by</span>
+            <div className="segmented extension-duration">
+              {[3, 5, 10].map((seconds) => (
+                <button
+                  key={seconds}
+                  disabled={
+                    !!active ||
+                    extensionTarget.duration + seconds > MAX_TOTAL_DURATION
+                  }
+                  className={extensionDuration === seconds ? "active" : ""}
+                  onClick={() => setExtensionDuration(seconds)}
+                >
+                  +{seconds}s
+                </button>
+              ))}
+            </div>
+            <p className="extension-total">
+              New length:{" "}
+              <strong>
+                {extensionTarget.duration + extensionDuration} seconds
+              </strong>
+              <span>Up to {MAX_TOTAL_DURATION}s total</span>
+            </p>
+            <button
+              className="generate-button"
+              disabled={!!active || loadingExtension}
+              onClick={extendVideo}
+            >
+              {submitting ? (
+                <LoaderCircle size={17} className="spin" />
+              ) : (
+                <Plus size={17} />
+              )}
+              <span>
+                {submitting ? "Starting extension…" : "Generate extension"}
+              </span>
+              <ArrowRight size={17} />
+            </button>
+            <div className="extension-bottom">
+              <button
+                className="text-button"
+                disabled={!!active}
+                onClick={() => setExtensionTarget(null)}
+              >
+                Not now
+              </button>
+              <a
+                className="download-button"
+                href={extensionTarget.fileUrl!}
+                download={
+                  extensionTarget.filename ||
+                  `vanta-${extensionTarget.id}.${extensionTarget.extension || "mp4"}`
+                }
+              >
+                <ArrowDownToLine size={15} /> Download current video
+              </a>
+            </div>
+          </section>
+        </div>
+      )}
       {help && (
         <div className="modal-backdrop" onClick={() => setHelp(false)}>
           <section

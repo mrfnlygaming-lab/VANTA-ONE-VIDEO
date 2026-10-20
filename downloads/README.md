@@ -3,8 +3,11 @@
 1. Open **VANTA-MOTION-STUDIO.zip** in this folder and select **Download raw file**.
 2. Extract the ZIP on your computer.
 3. Open **VANTA-OPEN.html** in a current Chrome or Edge browser.
-4. Select **Try an example** or choose your own image, then **Generate video**.
-5. Keep the tab visible while rendering and select **Download** to save the result.
+4. Choose up to six images and arrange their order. Add a prompt such as “pan left.”
+5. Select **Generate video** and keep the tab visible while rendering.
+6. After generation, use the extension popup to append another scene from new
+   images or the final frame, or select **Not now** to play/download the result.
+   Extensions preserve the original video and can repeat up to 60 seconds total.
 
 The ZIP contains the complete HTML app and opening instructions. It needs no
 server, Node.js installation, hosting account, API key, or network connection to
