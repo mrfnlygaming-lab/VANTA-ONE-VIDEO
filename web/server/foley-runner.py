@@ -21,7 +21,8 @@ def main():
     parser.add_argument("--single_video", required=True)
     parser.add_argument("--single_prompt", required=True)
     parser.add_argument("--output_audio", required=True)
-    parser.add_argument("--num_inference_steps", type=int, default=12)
+    parser.add_argument("--num_inference_steps", type=int, default=8)
+    parser.add_argument("--guidance_scale", type=float, default=1.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--enable_offload", action="store_true")
@@ -59,6 +60,7 @@ def main():
         args.single_prompt,
         model_dict,
         cfg,
+        guidance_scale=args.guidance_scale,
         num_inference_steps=args.num_inference_steps,
     )
 
