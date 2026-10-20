@@ -57,7 +57,7 @@ function execute(command, args, { cwd, signal, maxMs = 2_700_000 } = {}) {
       if (code !== 0) {
         const details = (stderr + "\n" + stdout).toLowerCase();
         const message = /out of memory|cuda.*memory|cuda error/.test(details)
-          ? "GPU memory ran out in VANTA Motion Core. Close other GPU apps or use a shorter clip."
+          ? "GPU memory ran out in VANTA Motion Core. Close other GPU apps or use Turbo mode or a shorter clip."
           : /unused.*lora|lora.*unused/.test(details)
           ? "The VANTA motion adapter did not attach correctly. Restore the patched Musubi LoRA loader."
           : /no module named|modulenotfounderror/.test(details)
@@ -85,10 +85,33 @@ async function probe(ffprobePath, file, signal) {
   return { ...video, duration };
 }
 
-function sourceSize(format) {
-  if (format === "portrait") return { height: 832, width: 480 };
-  if (format === "square") return { height: 480, width: 480 };
-  return { height: 480, width: 832 };
+const SPEED_PROFILES = {
+  turbo: {
+    steps: 6,
+    landscape: { height: 360, width: 640 },
+    portrait: { height: 640, width: 360 },
+    square: { height: 384, width: 384 },
+  },
+  balanced: {
+    steps: 8,
+    landscape: { height: 416, width: 736 },
+    portrait: { height: 736, width: 416 },
+    square: { height: 416, width: 416 },
+  },
+  quality: {
+    steps: 12,
+    landscape: { height: 480, width: 832 },
+    portrait: { height: 832, width: 480 },
+    square: { height: 480, width: 480 },
+  },
+};
+
+function renderProfile(format, speedMode = "turbo") {
+  const profile = SPEED_PROFILES[speedMode] || SPEED_PROFILES.turbo;
+  return {
+    steps: profile.steps,
+    ...(profile[format] || profile.landscape),
+  };
 }
 
 export class VantaMotionService extends XaiService {
@@ -127,10 +150,11 @@ export class VantaMotionService extends XaiService {
         400,
       );
     const job = await super.enqueue(files, settings, signal);
-    const size = sourceSize(job.format);
+    const size = renderProfile(job.format, job.speedMode);
     job.aiBackend = "vanta-motion";
-    job.model = "VANTA Motion Core · trained local motion stack";
+    job.model = "VANTA Motion Core · " + String(job.speedMode || "turbo").toUpperCase();
     job.sourceResolution = size.width + "x" + size.height;
+    job.inferenceSteps = size.steps;
     job.outputResolution = "1080p (upscaled)";
     job.upscaled = true;
     job.canCancel = true;
@@ -146,7 +170,7 @@ export class VantaMotionService extends XaiService {
     job.status = "processing";
     job.progress = 1;
     try {
-      const size = sourceSize(job.format);
+      const size = renderProfile(job.format, job.speedMode);
       const outDir = path.join(work.workDir, "wan-output");
       await mkdir(outDir, { recursive: true });
       const fps = 16;
@@ -159,13 +183,14 @@ export class VantaMotionService extends XaiService {
         "--fp8",
         "--video_size", String(size.height), String(size.width),
         "--video_length", String(normalizedFrames),
-        "--infer_steps", "12",
+        "--infer_steps", String(size.steps),
         "--fps", String(fps),
         "--prompt", job.prompt,
         "--dit", this.dit,
         "--vae", this.vae,
         "--t5", this.t5,
-        "--attn_mode", "torch",
+        "--attn_mode", "sdpa",
+        "--fp8_t5",
         "--seed", String(Math.floor(Math.random() * 2147483647)),
         "--output_type", "video",
         "--vae_cache_cpu",
