@@ -105,7 +105,7 @@ export class LocalAudioService {
 
   async apply({
     soundMode,
-    speedMode = "hyper",
+    speedMode = "turbo",
     videoPath,
     prompt,
     workDir,
@@ -133,8 +133,8 @@ export class LocalAudioService {
       String(prompt || "").trim();
 
     try {
-      const stepMap = { hyper: 20, turbo: 30, balanced: 40, quality: 50 };
-      const audioSteps = stepMap[speedMode] || 20;
+      const stepMap = { turbo: 30, balanced: 40, quality: 50 };
+      const audioSteps = stepMap[speedMode] || 30;
       const args = [
         this.script,
         "--model_path", this.modelDir,
