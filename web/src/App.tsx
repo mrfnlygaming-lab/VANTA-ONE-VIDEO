@@ -163,7 +163,7 @@ export default function App() {
       const info = await refreshCapabilities();
       if (!info.ai)
         setError(
-          "The running server still needs XAI_API_KEY. Save it securely in Environment settings, apply the settings, and restart the server. Then check again.",
+          "The local LTX model is not ready. Set LTX_DIR and LTX_PYTHON on your PC, verify the model files, restart VANTA, then check again. No credits are needed.",
         );
     } catch (err) {
       setAiAvailable(false);
@@ -267,8 +267,8 @@ export default function App() {
     setError(null);
     setLoadingImage(true);
     try {
-      if (engine === "ai" && files.length + candidates.length > 3)
-        throw new Error("Choose up to 3 reference images for one AI scene.");
+      if (engine === "ai" && files.length + candidates.length > 1)
+        throw new Error("Choose one starting image for local AI video. Use Camera sequence for multiple photos.");
       const next = await validateImages(candidates, files);
       if (version === sourceVersion.current) {
         setFiles(next);
@@ -389,10 +389,10 @@ export default function App() {
     if (!file || active) return;
     if (
       engine === "ai" &&
-      (!aiAvailable || !prompt.trim() || files.length > 3)
+      (!aiAvailable || !prompt.trim() || files.length > 1)
     ) {
       setError(
-        "AI scenes need the server version with XAI_API_KEY configured, 1–3 reference images, and a full scene prompt.",
+        "Local AI video needs the PC server, a working LTX model, one starting image, and a scene prompt. No API key or credits.",
       );
       return;
     }
@@ -591,7 +591,7 @@ export default function App() {
                     }}
                   >
                     <option value="ai">
-                      AI scene · all references together
+                      AI scene · local GPU
                     </option>
                     <option value="camera">
                       Camera sequence · pan and zoom
@@ -599,15 +599,15 @@ export default function App() {
                   </select>
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Generate subject movement in one coherent scene from up to three references and your complete prompt."
+                      ? "Generate genuine AI movement using one starting image and your prompt, entirely on your PC."
                       : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
                   </p>
                   {engine === "ai" && !aiAvailable && (
                     <div className="ai-setup-message" role="status">
                       <p>
                         {runtime.standalone
-                          ? "This downloaded HTML cannot generate AI scenes. Use the server app with an xAI API key for subject movement and multiple references in one scene. AI generation uses your xAI account credits."
-                          : "AI scenes need XAI_API_KEY on this server. Save it securely in Environment settings, apply the settings, and restart the server. Then select Check AI setup below. Uses your xAI account credits."}
+                          ? "This standalone HTML can animate camera movement only. For genuine AI subject movement, start the PC server with your local LTX model. No credits are needed."
+                          : "Local AI needs your installed LTX-Video model. Set LTX_DIR and LTX_PYTHON on the PC, restart the server, then Check AI setup. There is no paid API."}
                       </p>
                       <div className="ai-setup-actions">
                         {runtime.standalone && (
@@ -620,7 +620,7 @@ export default function App() {
                           </a>
                         )}
                         <a
-                          href="https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/tree/codex/vanta-browser-studio/web#ai-scenes-with-grok"
+                          href="https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/blob/codex/vanta-browser-studio/web/LOCAL-NO-CREDITS.md"
                           target="_blank"
                           rel="noopener noreferrer"
                         >
@@ -654,7 +654,7 @@ export default function App() {
                   </div>
                   <ImageSelector
                     files={files}
-                    maxImages={engine === "ai" ? 3 : 6}
+                    maxImages={engine === "ai" ? 1 : 6}
                     references={engine === "ai"}
                     onAdd={selectFiles}
                     onChange={(next) => {
@@ -758,7 +758,7 @@ export default function App() {
                   )}
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Your entire prompt is sent to Grok unchanged with all reference images in one request. Describe the actions and how the subjects interact. Image references do not play as separate shots."
+                      ? "Your prompt and one reference image stay on this PC. The local LTX model generates new frames; it may change small identity details."
                       : `${promptMotion(prompt) ? `Camera direction: ${selectedMotion.title}.` : "Camera words control movement; other details are saved as notes."} This mode does not generate AI subject motion.`}
                   </p>
                   <div className="section-divider" />
@@ -856,7 +856,7 @@ export default function App() {
                     <ShieldCheck size={15} />
                     <span>
                       {engine === "ai"
-                        ? "Uses xAI credits · Images and prompts sent to xAI"
+                        ? "No credits · No API key · Local GPU AI"
                         : "No credits. No API key. Camera animation only."}
                     </span>
                   </div>
@@ -868,7 +868,7 @@ export default function App() {
                       loadingImage ||
                       !online ||
                       (engine === "ai" &&
-                        (!aiAvailable || !prompt.trim() || files.length > 3))
+                        (!aiAvailable || !prompt.trim() || files.length > 1))
                     }
                     onClick={generate}
                   >
@@ -894,7 +894,7 @@ export default function App() {
                   </button>
                   <p className="settings-footnote">
                     {engine === "ai"
-                      ? "AI reference scenes: 720p generation → 1080p upscale"
+                      ? "Local AI generation · low-res model → 1080p upscale"
                       : `Camera animation · 24 fps · 1080p ${exportExtension.toUpperCase()} export`}
                   </p>
                 </section>
@@ -970,7 +970,7 @@ export default function App() {
                               ? "Opening your starting frame"
                               : "Uploading your starting frame"
                             : job?.engine === "ai"
-                              ? "Generating subject movement with xAI, then exporting 1080p. This may take several minutes."
+                              ? "Rendering real AI movement on your GPU, then upscaling to 1080p. Longer scenes take more time."
                               : `${Math.round(job?.progress || 0)}% rendered`}
                         </p>
                         <div className="progress-track">
@@ -978,8 +978,7 @@ export default function App() {
                         </div>
                         {job?.engine === "ai" && (
                           <p className="ai-cancel-note">
-                            xAI does not cancel submitted jobs. Stopping here
-                            does not stop the remote job or billing.
+                            This render runs locally. Cancel it here without any API charges.
                           </p>
                         )}
                         {job && (
@@ -988,7 +987,7 @@ export default function App() {
                             onClick={() => removeVideo(job)}
                           >
                             {job.engine === "ai"
-                              ? "Stop waiting and remove"
+                              ? "Cancel local AI render"
                               : "Cancel rendering"}
                           </button>
                         )}
@@ -1052,14 +1051,14 @@ export default function App() {
                         {completed
                           ? "Your moment, in motion."
                           : engine === "ai"
-                            ? "Two references. One moving scene."
+                            ? "One photo. A moving scene."
                             : "Small movement. A whole new feeling."}
                       </h3>
                       <p>
                         {completed
                           ? `Your ${(job?.extension || "mp4").toUpperCase()} is ready in My videos. Download it and make it yours.`
                           : engine === "ai"
-                            ? "Grok receives every reference together and follows the complete scene prompt. The model creates new motion; reference mode renders at 720p, then the server exports an explicitly upscaled 1080p video."
+                            ? "LTX animates your starting image on your own GPU. The model creates actual new frames at a smaller resolution; 1080p export is upscaled, not native detail."
                             : "Add a cinematic pan or zoom to your photo. Your image stays the star — no AI subject animation or invented frames."}
                       </p>
                     </div>
@@ -1193,7 +1192,7 @@ export default function App() {
               {runtime.standalone
                 ? "Your videos stay in this browser. Download to keep."
                 : engine === "ai"
-                  ? "AI scenes send your images and prompt to xAI."
+                  ? "AI scenes run locally on your own GPU."
                   : "Your camera videos stay on this server."}
             </span>
           </footer>
@@ -1342,24 +1341,21 @@ export default function App() {
             <h2 id="help-title">From still to scene.</h2>
             <p>
               {runtime.standalone
-                ? "Select Camera sequence to animate one to six JPG, PNG, or WebP images in your browser. MP4 is preferred; browsers without MP4 recording use WebM. Real AI subject movement requires the server version and an xAI key."
-                : "Select AI scene to combine one to three reference images with your complete scene prompt using Grok. Configure XAI_API_KEY on the server first. Camera sequence animates one to six images with FFmpeg and supports extensions."}
+                ? "Select Camera sequence to animate one to six JPG, PNG, or WebP images in your browser. MP4 is preferred; browsers without MP4 recording use WebM. Real AI subject movement requires the PC server with your local LTX model."
+                : "Select AI scene to animate one reference image using your local LTX model. No credits or API key are needed. Camera sequence animates up to six ordered photos with FFmpeg and supports extensions."}
             </p>
             <div className="help-detail">
               <Clock3 size={19} />
               <p>
                 Pick 3, 5, or 10 seconds. Landscape and portrait exports use a
-                1080-pixel short edge; square uses 1080 × 1080. Grok reference
-                scenes are generated at 720p and upscaled to 1080p.
+                1080-pixel short edge; square uses 1080 × 1080. Local LTX scenes are generated at lower resolution and upscaled to 1080p.
               </p>
             </div>
             <div className="help-detail">
               <ShieldCheck size={19} />
               <p>
-                AI scenes send your images and prompt to xAI and use your xAI
-                credits. Camera sequence needs no API key and creates silent
-                pan-and-zoom video. Stopping an AI wait does not cancel the
-                provider’s generation or its charges.
+                AI scene generation runs locally and uses no credits or API key.
+                Camera sequence creates silent pan-and-zoom video. Cancelling a local render stops the local process.
               </p>
             </div>
             <p className="muted">
