@@ -7,6 +7,7 @@ import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { XaiService } from "./xai-service.js";
 import { RenderError } from "./renderer.js";
+import { LocalAudioService } from "./local-audio-service.js";
 
 const WINDOWS_LTX = "P:\\grok\\AXG-Motion\\LTX-Video";
 const WINDOWS_PYTHON = "P:\\grok\\AXG-Motion\\env\\Scripts\\python.exe";
@@ -114,6 +115,7 @@ export class LocalLtxService extends XaiService {
       (process.platform === "win32" ? WINDOWS_PYTHON : "python3");
     this.config = findConfig(this.repoDir);
     this.maxReferenceImages = 4;
+    this.audioService = new LocalAudioService({ ffmpegPath: this.ffmpegPath });
   }
 
   get configured() {
@@ -254,6 +256,19 @@ export class LocalLtxService extends XaiService {
         throw new RenderError("The local 1080p MP4 failed validation.", 502);
       if (signal.aborted) throw new RenderError("Generation cancelled.", 499);
       await rename(this.partialPath(job.id), this.filePath(job.id));
+
+      job.progress = 90;
+      const audio = await this.audioService.apply({
+        soundMode: job.soundMode,
+        videoPath: this.filePath(job.id),
+        prompt: job.prompt,
+        workDir: work.workDir,
+        signal,
+      });
+      job.hasAudio = audio.hasAudio;
+      job.audioEngine = audio.audioEngine;
+      job.warning = audio.warning;
+
       job.status = "completed";
       job.progress = 100;
       job.duration = result.duration;
