@@ -163,6 +163,7 @@ export class XaiService {
     this.pollTimeoutMs = Math.max(1, pollTimeoutMs);
     this.maxPending = maxPending;
     this.maxCompleted = maxCompleted;
+    this.maxReferenceImages = 3;
     this.jobs = new Map();
     this.work = new Map();
     this.controllers = new Map();
@@ -223,7 +224,7 @@ export class XaiService {
   }
 
   publicJob(job) {
-    const fields = ["id", "status", "progress", "createdAt", "completedAt", "engine", "model", "extendable", "canCancel", "cancelWarning", "prompt", "motion", "parentId", "requestedDuration", "duration", "addedDuration", "imageCount", "format", "width", "height", "sourceWidth", "sourceHeight", "sourceResolution", "outputResolution", "upscaled", "filename", "mimeType", "extension", "error"];
+    const fields = ["id", "status", "progress", "createdAt", "completedAt", "engine", "model", "extendable", "canCancel", "cancelWarning", "prompt", "motion", "parentId", "requestedDuration", "duration", "addedDuration", "imageCount", "backgroundIndex", "keepIdentity", "keepOutfit", "format", "width", "height", "sourceWidth", "sourceHeight", "sourceResolution", "outputResolution", "upscaled", "filename", "mimeType", "extension", "error"];
     return {
       ...Object.fromEntries(fields.filter(field => Object.hasOwn(job, field)).map(field => [field, job[field]])),
       fileUrl: job.status === "completed" ? `/api/videos/${job.id}/file` : null,
@@ -235,12 +236,14 @@ export class XaiService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(job => this.publicJob(job));
   }
 
-  async enqueue(files, { prompt, duration, format, parentId = null }, signal) {
+  async enqueue(files, { prompt, duration, format, parentId = null, backgroundIndex = 0, keepIdentity = true, keepOutfit = true }, signal) {
     this._ready();
     cancelled(signal);
     if (parentId) throw new RenderError("AI video extension is not supported. Create a new AI video, or extend a camera-motion video.", 422);
-    if (!Array.isArray(files) || files.length < 1 || files.length > 3)
-      throw new RenderError("AI generation supports between 1 and 3 reference images.", 400);
+    if (!Array.isArray(files) || files.length < 1 || files.length > this.maxReferenceImages)
+      throw new RenderError(`AI generation supports between 1 and ${this.maxReferenceImages} reference images.`, 400);
+    if (!Number.isInteger(backgroundIndex) || backgroundIndex < 0 || backgroundIndex >= files.length)
+      throw new RenderError("Choose which reference image supplies the scene background.", 400);
     if (typeof prompt !== "string" || !prompt.trim() || prompt.length > MAX_PROMPT_LENGTH)
       throw new RenderError(`Describe your AI video in a prompt of 1 to ${MAX_PROMPT_LENGTH} characters.`, 400);
     if (![3, 5, 10].includes(duration) || !Object.hasOwn(FORMATS, format))
@@ -274,7 +277,7 @@ export class XaiService {
         id, status: "queued", progress: 0, createdAt: new Date().toISOString(), completedAt: null,
         engine: "ai", model: MODEL, extendable: false, canCancel: false, cancelWarning: CANCEL_WARNING,
         prompt, motion: null, parentId: null, requestedDuration: duration, duration, addedDuration: duration,
-        imageCount: images.length, format, ...FORMATS[format], sourceResolution: "720p", outputResolution: "1080p", upscaled: true,
+        imageCount: images.length, backgroundIndex, keepIdentity: Boolean(keepIdentity), keepOutfit: Boolean(keepOutfit), format, ...FORMATS[format], sourceResolution: "720p", outputResolution: "1080p", upscaled: true,
         filename: `vanta-ai-${id.slice(0, 8)}.mp4`, mimeType: "video/mp4", extension: "mp4", error: null,
       };
       this.jobs.set(id, job);
