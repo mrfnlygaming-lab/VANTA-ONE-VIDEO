@@ -46,8 +46,8 @@ export async function createApp(options = {}) {
     limits: {
       fileSize: 20 * 1024 * 1024,
       files: MAX_IMAGES,
-      fields: 8,
-      parts: 16,
+      fields: 12,
+      parts: 24,
       fieldSize: 4096,
     },
     fileFilter: (_req, file, callback) => {
@@ -69,7 +69,7 @@ export async function createApp(options = {}) {
       ai: aiService.configured,
       aiNeedsKey: Boolean(options.xaiOptions) && !aiService.configured,
       aiNeedsLocalModel: !aiService.configured,
-      aiMaxImages: options.xaiOptions ? 3 : 1,
+      aiMaxImages: options.xaiOptions ? 3 : 4,
       aiModel: options.xaiOptions ? "mock-xai" : "LTX-Video 2B local",
       outputResolution: "1080p",
       aiSourceResolution: options.xaiOptions ? "720p" : "512x288 or 384x384",
@@ -100,6 +100,9 @@ export async function createApp(options = {}) {
         prompt = "",
         parentId = null,
         engine = "camera",
+        backgroundIndex = "0",
+        keepIdentity = "true",
+        keepOutfit = "true",
       } = req.body;
       if (!["ai", "camera"].includes(engine))
         throw new RenderError("Choose AI scene or Camera sequence.", 400);
@@ -135,9 +138,21 @@ export async function createApp(options = {}) {
           400,
         );
       const selectedService = engine === "ai" ? aiService : service;
+      const parsedBackgroundIndex = Number(backgroundIndex);
+      if (engine === "ai" && (!Number.isInteger(parsedBackgroundIndex) || parsedBackgroundIndex < 0 || parsedBackgroundIndex >= files.length))
+        throw new RenderError("Choose a valid background reference.", 400);
       const job = await selectedService.enqueue(
         files,
-        { motion, duration: Number(duration), format, prompt, parentId },
+        {
+          motion,
+          duration: Number(duration),
+          format,
+          prompt,
+          parentId,
+          backgroundIndex: parsedBackgroundIndex,
+          keepIdentity: keepIdentity !== "false",
+          keepOutfit: keepOutfit !== "false",
+        },
         controller.signal,
       );
       res.status(202).json(selectedService.publicJob(job));
