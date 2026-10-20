@@ -38,7 +38,7 @@ type Motion = "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "still";
 type Format = "landscape" | "portrait" | "square";
 type AiBackend = "vanta-motion";
 type SoundMode = "silent" | "auto";
-type SpeedMode = "hyper" | "turbo" | "balanced" | "quality";
+type SpeedMode = "turbo" | "balanced" | "quality";
 type Video = {
   id: string;
   status: string;
@@ -125,7 +125,7 @@ export default function App() {
   const keepIdentity = true;
   const keepOutfit = true;
   const [soundMode, setSoundMode] = useState<SoundMode>("silent");
-  const [speedMode, setSpeedMode] = useState<SpeedMode>("hyper");
+  const [speedMode, setSpeedMode] = useState<SpeedMode>("turbo");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
@@ -861,7 +861,7 @@ export default function App() {
                     <>
                       <span className="field-label">Render speed</span>
                       <div className="segmented">
-                        {(["hyper", "turbo", "balanced", "quality"] as SpeedMode[]).map((mode) => (
+                        {(["turbo", "balanced", "quality"] as SpeedMode[]).map((mode) => (
                           <button
                             key={mode}
                             className={speedMode === mode ? "active" : ""}
@@ -871,24 +871,20 @@ export default function App() {
                               setJob(null);
                             }}
                           >
-                            {mode === "hyper"
-                              ? "Hyper"
-                              : mode === "turbo"
-                                ? "Turbo"
-                                : mode === "balanced"
-                                  ? "Balanced"
-                                  : "Quality"}
+                            {mode === "turbo"
+                              ? "Turbo"
+                              : mode === "balanced"
+                                ? "Balanced"
+                                : "Quality"}
                           </button>
                         ))}
                       </div>
                       <p className="prompt-explanation">
-                        {speedMode === "hyper"
-                          ? "Hyper is the default: 4 diffusion steps, 4 generated FPS, tiny internal canvas, resident GPU-hot models, then 24 FPS / 1080p export."
-                          : speedMode === "turbo"
-                            ? "Turbo uses 6 steps and 8 generated FPS for a cleaner but slower result."
-                            : speedMode === "balanced"
-                              ? "Balanced uses 8 steps and 12 generated FPS."
-                              : "Quality uses 12 steps and the largest internal canvas."}
+                        {speedMode === "turbo"
+                          ? "Turbo is the fastest stable preset on this 16 GB GPU: 6 diffusion steps, 8 generated FPS, resident motion model, then 24 FPS / 1080p export."
+                          : speedMode === "balanced"
+                            ? "Balanced uses 8 steps and 12 generated FPS."
+                            : "Quality uses 12 steps and the largest internal canvas."}
                       </p>
                     </>
                   )}
