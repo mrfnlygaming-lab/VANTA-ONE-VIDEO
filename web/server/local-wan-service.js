@@ -6,6 +6,7 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { XaiService } from "./xai-service.js";
 import { RenderError } from "./renderer.js";
+import { LocalAudioService } from "./local-audio-service.js";
 
 const ROOT = "P:\\GROK\\XZAKUT_TRAINING_NATIVE";
 const DEFAULTS = {
@@ -101,6 +102,7 @@ export class LocalWanService extends XaiService {
     this.vae = process.env.XZAKUT_WAN_VAE || DEFAULTS.vae;
     this.t5 = process.env.XZAKUT_WAN_T5 || DEFAULTS.t5;
     this.lora = process.env.XZAKUT_WAN_LORA || DEFAULTS.lora;
+    this.audioService = new LocalAudioService({ ffmpegPath: this.ffmpegPath });
   }
 
   get configured() {
@@ -209,6 +211,19 @@ export class LocalWanService extends XaiService {
         throw new RenderError("XZAKUT Motion 1080p export failed validation.", 502);
 
       await rename(this.partialPath(job.id), this.filePath(job.id));
+
+      job.progress = 90;
+      const audio = await this.audioService.apply({
+        soundMode: job.soundMode,
+        videoPath: this.filePath(job.id),
+        prompt: job.prompt,
+        workDir: work.workDir,
+        signal,
+      });
+      job.hasAudio = audio.hasAudio;
+      job.audioEngine = audio.audioEngine;
+      job.warning = audio.warning;
+
       job.status = "completed";
       job.progress = 100;
       job.duration = result.duration;
