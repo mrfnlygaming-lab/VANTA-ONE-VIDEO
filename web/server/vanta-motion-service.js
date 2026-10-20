@@ -59,9 +59,9 @@ function execute(command, args, { cwd, signal, maxMs = 2_700_000 } = {}) {
         const message = /out of memory|cuda.*memory|cuda error/.test(details)
           ? "GPU memory ran out in VANTA Motion Core. Close other GPU apps or use a shorter clip."
           : /unused.*lora|lora.*unused/.test(details)
-          ? "The XZAKUT LoRA did not attach correctly. Restore the patched Musubi LoRA loader."
+          ? "The VANTA motion adapter did not attach correctly. Restore the patched Musubi LoRA loader."
           : /no module named|modulenotfounderror/.test(details)
-          ? "The XZAKUT training environment is missing a Python dependency."
+          ? "The VANTA motion training environment is missing a Python dependency."
           : "VANTA Motion Core generation failed. Check the Wan/Musubi terminal output.";
         return finish(new RenderError(message, 502));
       }
@@ -93,16 +93,16 @@ function sourceSize(format) {
 
 export class VantaMotionService extends XaiService {
   constructor(options) {
-    super({ ...options, apiKey: "local-xzakut-wan-no-api-key" });
+    super({ ...options, apiKey: "vanta-motion-local" });
     this.minReferenceImages = 0;
     this.maxReferenceImages = 0;
-    this.root = path.resolve(process.env.XZAKUT_WAN_ROOT || ROOT);
-    this.python = process.env.XZAKUT_WAN_PYTHON || DEFAULTS.python;
-    this.script = process.env.XZAKUT_WAN_SCRIPT || DEFAULTS.script;
-    this.dit = process.env.XZAKUT_WAN_DIT || DEFAULTS.dit;
-    this.vae = process.env.XZAKUT_WAN_VAE || DEFAULTS.vae;
-    this.t5 = process.env.XZAKUT_WAN_T5 || DEFAULTS.t5;
-    this.lora = process.env.XZAKUT_WAN_LORA || DEFAULTS.lora;
+    this.root = path.resolve(process.env.VANTA_MOTION_ROOT || process.env.XZAKUT_WAN_ROOT || ROOT);
+    this.python = process.env.VANTA_MOTION_PYTHON || process.env.XZAKUT_WAN_PYTHON || DEFAULTS.python;
+    this.script = process.env.VANTA_MOTION_SCRIPT || process.env.XZAKUT_WAN_SCRIPT || DEFAULTS.script;
+    this.dit = process.env.VANTA_MOTION_DIT || process.env.XZAKUT_WAN_DIT || DEFAULTS.dit;
+    this.vae = process.env.VANTA_MOTION_VAE || process.env.XZAKUT_WAN_VAE || DEFAULTS.vae;
+    this.t5 = process.env.VANTA_MOTION_T5 || process.env.XZAKUT_WAN_T5 || DEFAULTS.t5;
+    this.lora = process.env.VANTA_MOTION_LORA || process.env.XZAKUT_WAN_LORA || DEFAULTS.lora;
     this.audioService = new LocalAudioService({ ffmpegPath: this.ffmpegPath });
   }
 
