@@ -138,8 +138,10 @@ export class LocalAudioService {
       String(prompt || "").trim();
 
     try {
-      const stepMap = { turbo: 12, balanced: 20, quality: 30 };
-      const audioSteps = stepMap[speedMode] || 12;
+      const stepMap = { turbo: 8, balanced: 16, quality: 30 };
+      const guidanceMap = { turbo: 1.0, balanced: 2.5, quality: 4.5 };
+      const audioSteps = stepMap[speedMode] || 8;
+      const guidanceScale = guidanceMap[speedMode] || 1.0;
       const audioPath = path.join(audioDir, "vanta-foley.wav");
       await rm(audioPath, { force: true });
       const args = [
@@ -147,6 +149,7 @@ export class LocalAudioService {
         "--model_path", this.modelDir,
         "--model_size", this.modelSize,
         "--num_inference_steps", String(audioSteps),
+        "--guidance_scale", String(guidanceScale),
         "--device", "cuda",
         "--single_video", videoPath,
         "--single_prompt", audioPrompt,
