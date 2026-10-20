@@ -51,7 +51,7 @@ not a seven-second miracle. Try 3 seconds first, especially with 16 GB VRAM.
 
 ## Limitations and credit policy
 
-- Local AI uses ONE starting image per scene. It does not combine three
+- Local AI uses 1–4 reference images per scene. It does not combine three
   different subject photos into one new scene as Grok may do.
 - Camera sequence can take 2-6 ordered photos but only creates pan/zoom
   motion, not invented subject movement.
@@ -79,3 +79,10 @@ From the web folder:
 Tests do not replace a real 3-second GPU smoke test on the Windows computer.
 Existing xAI code is retained for legacy mock-provider tests only; the
 default server instance always selects the local LTX backend instead.
+
+
+## Multi-reference scenes
+
+Local AI mode now accepts **1–4 reference images**. Choose **Use background from** to make one reference the primary environment/background anchor. **Keep identity** and **Keep outfit / hair / makeup** add preservation instructions while the other references are sent to LTX as additional conditioning inputs.
+
+The selected background receives the strongest local conditioning. The other references are deliberately weaker so their rooms/backgrounds are less likely to replace the chosen scene. Long-form prompts up to 4,000 characters are accepted. Local LTX can still drift on very difficult identity or multi-person shots; these controls improve guidance but are not a mathematical identity lock.
