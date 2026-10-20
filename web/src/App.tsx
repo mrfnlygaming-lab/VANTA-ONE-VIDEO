@@ -574,7 +574,7 @@ export default function App() {
               <ShieldCheck size={16} />
               <span>
                 <strong>Offline camera app.</strong> Camera sequences work in
-                this file. Real AI scenes require the local PC server and LTX model, not credits.
+                this file. Real AI scenes require VANTA Motion Core running on the local PC server.
               </span>
             </div>
           )}
@@ -622,7 +622,7 @@ export default function App() {
                   </select>
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "VANTA Motion Core uses our trained local motion stack. No LTX, no cloud credits, no hidden fallback."
+                      ? "VANTA Motion Core uses our trained local motion stack. No cloud credits and no hidden fallback."
                       : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
                   </p>
                   {engine === "ai" && (
@@ -778,24 +778,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  {engine === "ai" && aiBackend === "ltx" && files.length > 0 && (
-                    <div className="prompt-examples reference-tokens">
-                      {files.map((_, index) => (
-                        <button
-                          key={index}
-                          disabled={!!active}
-                          onClick={() =>
-                            setPrompt(
-                              (value) =>
-                                `${value}${value ? " " : ""}<IMAGE_${index}>`,
-                            )
-                          }
-                        >
-                          Insert Image {index + 1}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+
                   <p className="prompt-explanation">
                     {engine === "ai"
                       ? "This uses VANTA Motion Core locally. Reference conditioning will return through our own VANTA Reference Core adapter."
@@ -1119,7 +1102,7 @@ export default function App() {
                         {completed
                           ? `Your ${(job?.extension || "mp4").toUpperCase()} is ready in My videos. Download it and make it yours.`
                           : engine === "ai"
-                            ? "LTX animates your starting image on your own GPU. The model creates actual new frames at a smaller resolution; 1080p export is upscaled, not native detail."
+                            ? "VANTA Motion Core creates new frames on your own GPU. The current core renders below final delivery resolution and upscales the export to 1080p."
                             : "Add a cinematic pan or zoom to your photo. Your image stays the star — no AI subject animation or invented frames."}
                       </p>
                     </div>
@@ -1409,7 +1392,7 @@ export default function App() {
               <Clock3 size={19} />
               <p>
                 Pick 3, 5, or 10 seconds. Landscape and portrait exports use a
-                1080-pixel short edge; square uses 1080 × 1080. Local LTX scenes are generated at lower resolution and upscaled to 1080p.
+                1080-pixel short edge; square uses 1080 × 1080. VANTA Motion Core renders locally and upscales to the delivery resolution.
               </p>
             </div>
             <div className="help-detail">
