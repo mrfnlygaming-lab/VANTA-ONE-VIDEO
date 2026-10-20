@@ -4,7 +4,7 @@ The default AI engine runs LTX-Video locally on your Windows PC.
 It does NOT use xAI credits, paid Grok generation, or an API key.
 
 Start here: [Windows instructions and current download](LOCAL-NO-CREDITS.md).
-Run the web/START-VANTA-LOCAL.cmd Windows launcher from this branch source.
+Run the web/START-VANTA.cmd Windows launcher from this branch source.
 
 ## Two real generation modes
 
