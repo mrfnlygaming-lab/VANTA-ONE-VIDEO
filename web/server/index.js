@@ -15,8 +15,12 @@ const webDir = fileURLToPath(new URL("..", import.meta.url));
 export async function createApp(options = {}) {
   const app = express();
   app.disable("x-powered-by");
+  const ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg";
+  const ffprobePath = options.ffprobePath ?? process.env.FFPROBE_PATH ?? "ffprobe";
   const service = new VideoService({
     dataDir: path.join(webDir, ".data"),
+    ffmpegPath,
+    ffprobePath,
     ...options,
   });
   await service.init();
@@ -26,8 +30,8 @@ export async function createApp(options = {}) {
   const AIService = options.xaiOptions ? XaiService : LocalLtxService;
   const aiService = new AIService({
     dataDir: options.dataDir ?? path.join(webDir, ".data"),
-    ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath } : {}),
-    ...(options.ffprobePath ? { ffprobePath: options.ffprobePath } : {}),
+    ffmpegPath,
+    ffprobePath,
     ...options.xaiOptions,
   });
   await aiService.init();
@@ -63,7 +67,7 @@ export async function createApp(options = {}) {
     res.json({
       local: true,
       ai: aiService.configured,
-      aiNeedsKey: false,
+      aiNeedsKey: Boolean(options.xaiOptions) && !aiService.configured,
       aiNeedsLocalModel: !aiService.configured,
       aiMaxImages: options.xaiOptions ? 3 : 1,
       aiModel: options.xaiOptions ? "mock-xai" : "LTX-Video 2B local",
