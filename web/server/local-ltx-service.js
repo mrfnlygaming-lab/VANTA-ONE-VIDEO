@@ -8,8 +8,8 @@ import path from "node:path";
 import { XaiService } from "./xai-service.js";
 import { RenderError } from "./renderer.js";
 
-const WINDOWS_LTX = "P:\\GROK\\AXG-Motion\\LTX-Video";
-const WINDOWS_PYTHON = "P:\\GROK\\python.exe";
+const WINDOWS_LTX = "P:\\grok\\AXG-Motion\\LTX-Video";
+const WINDOWS_PYTHON = "P:\\grok\\AXG-Motion\\env\\Scripts\\python.exe";
 const CONFIGS = [
   "ltxv-2b-0.9.8-distilled.yaml",
   "ltxv-2b-0.9.6-distilled.yaml",
@@ -126,7 +126,7 @@ export class LocalLtxService extends XaiService {
     if (this.closed) throw new RenderError("The local AI engine is restarting.", 503);
     if (!this.configured)
       throw new RenderError(
-        "Local LTX is not configured. Set LTX_DIR and LTX_PYTHON to your existing LTX-Video installation, then restart VANTA. No credits or API key are required.",
+        "Local LTX is not configured. Expected P:\\grok\\AXG-Motion\\LTX-Video and P:\\grok\\AXG-Motion\\env\\Scripts\\python.exe, or set LTX_DIR/LTX_PYTHON manually. No credits or API key are required.",
         503
       );
   }
