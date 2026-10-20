@@ -38,6 +38,7 @@ type Motion = "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "still";
 type Format = "landscape" | "portrait" | "square";
 type AiBackend = "vanta-motion";
 type SoundMode = "silent" | "auto";
+type SpeedMode = "turbo" | "balanced" | "quality";
 type Video = {
   id: string;
   status: string;
@@ -63,6 +64,7 @@ type Video = {
   hasAudio?: boolean;
   audioEngine?: string | null;
   soundMode?: SoundMode;
+  speedMode?: SpeedMode;
   extendable?: boolean;
   upscaled?: boolean;
   sourceResolution?: string;
@@ -122,6 +124,7 @@ export default function App() {
   const [keepIdentity, setKeepIdentity] = useState(true);
   const [keepOutfit, setKeepOutfit] = useState(true);
   const [soundMode, setSoundMode] = useState<SoundMode>("silent");
+  const [speedMode, setSpeedMode] = useState<SpeedMode>("turbo");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
@@ -424,6 +427,7 @@ export default function App() {
       data.append("engine", engine);
       data.append("aiBackend", aiBackend);
       data.append("soundMode", soundMode);
+      data.append("speedMode", speedMode);
       data.append("backgroundIndex", String(backgroundIndex));
       data.append("keepIdentity", String(keepIdentity));
       data.append("keepOutfit", String(keepOutfit));
@@ -852,6 +856,37 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {engine === "ai" && (
+                    <>
+                      <span className="field-label">Render speed</span>
+                      <div className="segmented">
+                        {(["turbo", "balanced", "quality"] as SpeedMode[]).map((mode) => (
+                          <button
+                            key={mode}
+                            className={speedMode === mode ? "active" : ""}
+                            disabled={active}
+                            onClick={() => {
+                              setSpeedMode(mode);
+                              setJob(null);
+                            }}
+                          >
+                            {mode === "turbo"
+                              ? "Turbo"
+                              : mode === "balanced"
+                                ? "Balanced"
+                                : "Quality"}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="prompt-explanation">
+                        {speedMode === "turbo"
+                          ? "Turbo is the default: 6 diffusion steps, smaller internal canvas, SDPA attention, then 1080p upscale."
+                          : speedMode === "balanced"
+                            ? "Balanced uses 8 steps and a larger internal canvas."
+                            : "Quality uses the old 12-step workload and the largest internal canvas."}
+                      </p>
+                    </>
+                  )}
                   <span className="field-label">Aspect ratio</span>
                   <div className="format-options">
                     {formats.map((item) => (
@@ -938,7 +973,7 @@ export default function App() {
                   </button>
                   <p className="settings-footnote">
                     {engine === "ai"
-                      ? "VANTA Motion Core · our trained local stack → 1080p upscale"
+                      ? `VANTA Motion Core · ${speedMode.toUpperCase()} · local GPU → 1080p upscale`
                       : `Camera animation · 24 fps · 1080p ${exportExtension.toUpperCase()} export`}
                   </p>
                 </section>
