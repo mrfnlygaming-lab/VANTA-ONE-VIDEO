@@ -929,7 +929,7 @@ export default function App() {
                       loadingImage ||
                       !online ||
                       (engine === "ai" &&
-                        (!aiAvailable || !prompt.trim() || files.length > 1))
+                        (!aiAvailable || !prompt.trim() || files.length > 4))
                     }
                     onClick={generate}
                   >
