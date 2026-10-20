@@ -2,7 +2,7 @@
 
 VANTA's AI path in this branch is **VANTA Motion Core**.
 
-It uses the existing local XZAKUT Wan training stack and trained motion LoRA. It does not use paid xAI/Grok generation and it does not contain an LTX fallback.
+It uses the existing local XZAKUT Wan training stack and trained motion LoRA. It does not use paid xAI/Grok generation and it does not contain an alternate video-model fallback.
 
 See [LOCAL-NO-CREDITS.md](LOCAL-NO-CREDITS.md) for exact local paths and current limitations.
 
