@@ -252,10 +252,11 @@ export class VantaMotionService extends XaiService {
     return child;
   }
 
-  async residentGenerate({ prompt, width, height, frames, steps, seed, signal, timeoutMs = 2_700_000 }) {
+  async residentGenerate({ prompt, width, height, frames, steps, seed, signal, timeoutMs = 2_700_000, onProgress }) {
     const child = this.startResident();
     const readyStart = Date.now();
     while (!this.residentReady) {
+      onProgress?.("loading-core", 8);
       if (signal?.aborted) throw new RenderError("Generation cancelled.", 499);
       if (!this.resident || this.resident.killed)
         throw new Error("resident process exited during model load");
@@ -263,6 +264,7 @@ export class VantaMotionService extends XaiService {
         throw new Error("resident model load timed out");
       await sleep(250);
     }
+    onProgress?.("generating-frames", 18);
     const existing = new Set((await residentMp4s(this.residentDir)).map(item => item.file));
     const started = Date.now();
 
@@ -293,6 +295,8 @@ export class VantaMotionService extends XaiService {
         if (!this.resident || this.resident.killed)
           throw new Error("resident process exited");
 
+        const elapsed = Date.now() - started;
+        onProgress?.("generating-frames", Math.min(70, 18 + Math.floor(elapsed / 2000)));
         const candidates = (await residentMp4s(this.residentDir))
           .filter(item => !existing.has(item.file) && item.mtime >= started - 1000)
           .sort((a, b) => b.mtime - a.mtime);
@@ -385,6 +389,10 @@ export class VantaMotionService extends XaiService {
           steps: size.steps,
           seed,
           signal,
+          onProgress: (stage, progress) => {
+            job.stage = stage;
+            job.progress = progress;
+          },
         });
         rendered = path.join(outDir, "resident-source.mp4");
         await rename(residentFile, rendered);
@@ -415,6 +423,8 @@ export class VantaMotionService extends XaiService {
           "--lora_weight", this.lora,
           "--lora_multiplier", "1.0",
         ];
+        job.stage = "generating-frames";
+        job.progress = 18;
         await execute(this.python, args, {
           cwd: path.dirname(this.script),
           signal,
@@ -435,6 +445,7 @@ export class VantaMotionService extends XaiService {
         if (!videos.length) throw new RenderError("VANTA Motion Core finished without an MP4.", 502);
         rendered = videos[0].path;
       }
+      job.stage = "upscaling";
       job.progress = 78;
       const source = await probe(this.ffprobePath, rendered, signal);
 
@@ -456,6 +467,7 @@ export class VantaMotionService extends XaiService {
 
       await rename(this.partialPath(job.id), this.filePath(job.id));
 
+      job.stage = job.soundMode === "auto" ? "adding-audio" : "finalizing";
       job.progress = 90;
       const audio = await this.audioService.apply({
         soundMode: job.soundMode,
@@ -469,6 +481,7 @@ export class VantaMotionService extends XaiService {
       job.warning = audio.warning;
 
       job.status = "completed";
+      job.stage = "completed";
       job.progress = 100;
       job.duration = result.duration;
       job.addedDuration = result.duration;
