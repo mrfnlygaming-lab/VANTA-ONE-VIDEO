@@ -79,6 +79,8 @@ async function installDependencies({ includeDev }) {
   );
   const env = { ...process.env };
   delete env.XAI_API_KEY;
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'Path';
+  env[pathKey] = path.dirname(process.execPath) + path.delimiter + (env[pathKey] || '');
   const npmArgs = [
     'ci',
     ...(includeDev ? [] : ['--omit=dev']),
@@ -113,6 +115,8 @@ async function ensureFrontend() {
 
   const env = { ...process.env };
   delete env.XAI_API_KEY;
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'Path';
+  env[pathKey] = path.dirname(process.execPath) + path.delimiter + (env[pathKey] || '');
 
   // The local desktop server only needs Vite's normal dist/index.html.
   // Do NOT run the full npm build here: that also runs strict TypeScript
