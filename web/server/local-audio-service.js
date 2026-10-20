@@ -133,8 +133,8 @@ export class LocalAudioService {
       String(prompt || "").trim();
 
     try {
-      const stepMap = { turbo: 30, balanced: 40, quality: 50 };
-      const audioSteps = stepMap[speedMode] || 30;
+      const stepMap = { turbo: 12, balanced: 20, quality: 30 };
+      const audioSteps = stepMap[speedMode] || 12;
       const args = [
         this.script,
         "--model_path", this.modelDir,
