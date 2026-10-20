@@ -15,7 +15,12 @@ function run(command, args, { cwd, signal, maxMs = 1_800_000 } = {}) {
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, HF_HUB_DISABLE_TELEMETRY: "1" },
+      env: {
+        ...process.env,
+        HF_HUB_DISABLE_TELEMETRY: "1",
+        HF_HOME: process.env.VANTA_AUDIO_HF_HOME || "P:\\GROK\\VANTA_AUDIO\\HF_CACHE",
+        TRANSFORMERS_CACHE: process.env.VANTA_AUDIO_HF_HOME || "P:\\GROK\\VANTA_AUDIO\\HF_CACHE",
+      },
     });
     let stdout = "";
     let stderr = "";
@@ -100,6 +105,7 @@ export class LocalAudioService {
 
   async apply({
     soundMode,
+    speedMode = "hyper",
     videoPath,
     prompt,
     workDir,
@@ -127,10 +133,14 @@ export class LocalAudioService {
       String(prompt || "").trim();
 
     try {
+      const stepMap = { hyper: 20, turbo: 30, balanced: 40, quality: 50 };
+      const audioSteps = stepMap[speedMode] || 20;
       const args = [
         this.script,
         "--model_path", this.modelDir,
         "--model_size", this.modelSize,
+        "--num_inference_steps", String(audioSteps),
+        "--device", "cuda",
         "--single_video", videoPath,
         "--single_prompt", audioPrompt,
         "--output_dir", audioDir,
