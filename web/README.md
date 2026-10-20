@@ -8,6 +8,27 @@ A browser image-to-video studio with two generation modes:
 - **Camera sequence:** animate one to six photos in playback order using pan and
   zoom, with no API key. Exports at 1080p and supports appended extensions.
 
+## Run AI on your computer
+
+Download [VANTA-AI-LOCAL-SERVER.zip](../downloads/VANTA-AI-LOCAL-SERVER.zip),
+extract the entire ZIP, and open its **VANTA-AI** folder. Windows: double-click
+**START-VANTA.cmd**. Mac: double-click **START-VANTA.command**. Linux: run
+`bash start-vanta.sh`. The launcher downloads a verified portable Node runtime
+when needed, installs locked dependencies, and downloads verified video tools.
+It does not install global tools or require administrator access.
+
+Enter your xAI API key in the terminal when asked; the characters are hidden.
+The key stays in the running server process and is not saved to disk. The app
+opens in your default browser. Keep the terminal open and press Ctrl+C to stop.
+AI generation starts only when you select **Generate AI scene** and uses your
+xAI API credits. Internet is required. Relaunch to enter a different key.
+
+The server accepts connections only from this computer and rejects cross-site
+browser requests. Runtime tools and npm cache stay in `.vanta-runtime`; exports
+stay in `.data`. The extracted package is tested on Linux. Windows/macOS
+launchers are included but have not been executed on those operating systems.
+See its **START-HERE.txt** for supported platforms and opening instructions.
+
 ## AI scenes with Grok
 
 Run the server version below. Set `XAI_API_KEY` securely in your environment's
@@ -45,6 +66,23 @@ video CDN. See [AI-RESEARCH.md](AI-RESEARCH.md) for verified official sources.
 The integration is tested with a mocked provider and actual FFmpeg conversions.
 A live paid generation has not been verified in this environment because
 `XAI_API_KEY` is not configured.
+
+### If the downloaded file says AI needs a server
+
+`VANTA-OPEN.html` is the offline camera app. Select **Download computer app** for
+the local server ZIP above. **Set up AI scenes** opens these instructions; it
+does not launch or host the server. To use AI, run the server on your computer
+or a hosting account and configure the key there.
+This cloud onboarding screen does not provide a public app URL.
+
+In the server app, save the key securely and restart the server, then select
+**Check AI setup**. This refreshes the page's capabilities without clearing your
+images or prompt. It checks that the server has a key; it does not make a paid
+generation or verify the account's credits. The downloaded HTML cannot connect
+to that server or use a key saved in cloud settings.
+
+To keep using the offline renderer, select **Use Camera sequence**. It keeps
+your selected images and prompt, but only camera directions affect its motion.
 
 ## Run the server version
 

@@ -4,6 +4,10 @@ This ZIP contains the OFFLINE CAMERA APP. For AI subject movement and multiple
 references in one generated scene, use the server version with an xAI API key:
 https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/tree/codex/vanta-browser-studio/web
 
+"Set up AI scenes" in the app opens server setup instructions. It does not host
+or start the AI server. Run that version on your computer or a hosting account.
+Saving a cloud key cannot enable AI inside this downloaded HTML.
+
 1. Extract this ZIP to a folder on your computer.
 2. Open VANTA-OPEN.html in a current Chrome or Edge browser.
    If it opens in an editor, use Open With > Chrome or Edge.

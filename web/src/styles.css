@@ -34,6 +34,35 @@
   font-size: 11px;
   line-height: 1.8;
 }
+.ai-setup-message p {
+  margin: 0;
+}
+.ai-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ai-setup-actions a,
+.ai-setup-actions button {
+  border: 1px solid #7a6943;
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: #242118;
+  color: #f1dfb9;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ai-setup-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.ai-setup-actions a:focus-visible,
+.ai-setup-actions button:focus-visible {
+  outline: 2px solid #d1f08c;
+  outline-offset: 3px;
+}
 .ai-cancel-note {
   max-width: 350px;
   font-size: 10px !important;

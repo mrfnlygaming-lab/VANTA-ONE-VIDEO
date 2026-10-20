@@ -109,6 +109,7 @@ export default function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [engine, setEngine] = useState<"ai" | "camera">("ai");
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [checkingAi, setCheckingAi] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
@@ -146,28 +147,47 @@ export default function App() {
     api<{ videos: Video[] }>("/api/videos").then((data) =>
       setVideos(data.videos),
     );
+  const refreshCapabilities = () =>
+    api<{ extension?: string; storageWarning?: string; ai?: boolean }>(
+      "/api/capabilities",
+    ).then((info) => {
+      setAiAvailable(info.ai === true);
+      if (info.extension) setExportExtension(info.extension);
+      if (info.storageWarning) setError(info.storageWarning);
+      return info;
+    });
+  async function checkAiSetup() {
+    setCheckingAi(true);
+    setError(null);
+    try {
+      const info = await refreshCapabilities();
+      if (!info.ai)
+        setError(
+          "The running server still needs XAI_API_KEY. Save it securely in Environment settings, apply the settings, and restart the server. Then check again.",
+        );
+    } catch (err) {
+      setAiAvailable(false);
+      setError(
+        err instanceof Error ? err.message : "Could not check the AI server.",
+      );
+    } finally {
+      setCheckingAi(false);
+    }
+  }
   useEffect(() => {
     const health = () =>
       api<{ status: string }>("/api/health")
         .then(() => setOnline(true))
         .catch(() => setOnline(false));
     void health();
-    api<{ extension?: string; storageWarning?: string; ai?: boolean }>(
-      "/api/capabilities",
-    )
-      .then((info) => {
-        setAiAvailable(info.ai === true);
-        if (info.extension) setExportExtension(info.extension);
-        if (info.storageWarning) setError(info.storageWarning);
-      })
-      .catch((err) => {
-        if (runtime.standalone)
-          setError(
-            err instanceof Error
-              ? err.message
-              : "This browser cannot record video. Try Chrome or Edge.",
-          );
-      });
+    refreshCapabilities().catch((err) => {
+      if (runtime.standalone)
+        setError(
+          err instanceof Error
+            ? err.message
+            : "This browser cannot record video. Try Chrome or Edge.",
+        );
+    });
     const timer = window.setInterval(health, 10_000);
     refreshVideos().catch(() => {});
     return () => window.clearInterval(timer);
@@ -530,8 +550,8 @@ export default function App() {
             <div className="standalone-notice">
               <ShieldCheck size={16} />
               <span>
-                <strong>Ready to use — no server needed.</strong> Choose a photo
-                or try the example below. Keep this tab open while rendering.
+                <strong>Offline camera app.</strong> Camera sequences work in
+                this file. AI scenes require the server app and an xAI API key.
               </span>
             </div>
           )}
@@ -584,9 +604,44 @@ export default function App() {
                   </p>
                   {engine === "ai" && !aiAvailable && (
                     <div className="ai-setup-message" role="status">
-                      {runtime.standalone
-                        ? "AI scenes need the server version with an xAI API key. This offline file can export camera sequences at 1080p; select Camera sequence to use it without a server."
-                        : "AI scenes are waiting for XAI_API_KEY in Environment settings. Save the key securely there, then restart the server. Uses your xAI account credits."}
+                      <p>
+                        {runtime.standalone
+                          ? "This downloaded HTML cannot generate AI scenes. Use the server app with an xAI API key for subject movement and multiple references in one scene. AI generation uses your xAI account credits."
+                          : "AI scenes need XAI_API_KEY on this server. Save it securely in Environment settings, apply the settings, and restart the server. Then select Check AI setup below. Uses your xAI account credits."}
+                      </p>
+                      <div className="ai-setup-actions">
+                        {runtime.standalone && (
+                          <a
+                            href="https://raw.githubusercontent.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/refs/heads/codex/vanta-browser-studio/downloads/VANTA-AI-LOCAL-SERVER.zip"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Download computer app
+                          </a>
+                        )}
+                        <a
+                          href="https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/tree/codex/vanta-browser-studio/web#ai-scenes-with-grok"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Set up AI scenes
+                        </a>
+                        {!runtime.standalone && (
+                          <button disabled={checkingAi} onClick={checkAiSetup}>
+                            {checkingAi ? "Checking…" : "Check AI setup"}
+                          </button>
+                        )}
+                        <button
+                          disabled={!!active}
+                          onClick={() => {
+                            setEngine("camera");
+                            setJob(null);
+                            setPreviewMotion(false);
+                          }}
+                        >
+                          Use Camera sequence
+                        </button>
+                      </div>
                     </div>
                   )}
                   <div className="section-divider" />

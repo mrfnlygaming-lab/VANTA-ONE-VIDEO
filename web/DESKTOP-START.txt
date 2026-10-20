@@ -1,0 +1,53 @@
+VANTA AI — RUN ON YOUR COMPUTER
+
+This is the LOCAL SERVER version for actual AI subject movement.
+It is different from VANTA-OPEN.html, the offline camera-only app.
+
+1. Extract the ENTIRE ZIP to a writable folder, such as Documents.
+   Do not run a launcher from inside the ZIP.
+2. Open the extracted VANTA-AI folder.
+   Windows: double-click START-VANTA.cmd.
+   Mac: double-click START-VANTA.command.
+   Linux: run bash start-vanta.sh from a terminal in this folder.
+3. First launch downloads Node.js if needed, app dependencies, FFmpeg, and
+   ffprobe. This may take several minutes. It does not install global tools or
+   require an administrator account. The app verifies downloaded tool checksums.
+4. Enter your xAI API key in the terminal when asked, then press Enter. The
+   characters are hidden. Never paste the key into chat or the downloaded HTML.
+   The key is kept in the running server process and is not saved to disk.
+   An existing XAI_API_KEY environment variable is also supported.
+5. The app opens in your default browser. Keep the terminal window open.
+6. Choose AI scene, add 1–3 references, and describe their action in one scene.
+   Select Generate AI scene. This sends the images and prompt to xAI and uses
+   your xAI API credits. Merely starting VANTA does not submit a generation.
+7. Download the result. To stop VANTA, press Ctrl+C in its terminal. Relaunch
+   and enter the key again next time. Relaunch to change an invalid key.
+
+You need your own xAI API key and API credits. See https://console.x.ai/ .
+AI generation requires internet access. A chat subscription is not used by this
+app. The key is not included in the download.
+
+Grok reference video is generated at 720p, then exported as a clearly labeled
+1080p upscale. Model prompt adherence, identity, and motion quality can vary.
+Camera sequence exports 1080p pan/zoom with no generation charge. Extensions
+currently work with camera videos only. Stopping local AI work cannot cancel
+provider generation or its charges.
+
+The server binds only to this computer's loopback interface. Your uploads and
+saved exports live in .data inside this folder. Runtime downloads and the npm
+cache live in .vanta-runtime; dependencies live in node_modules. Download videos
+before deleting the app folder. Source references are sent to xAI in AI mode.
+
+Supported launch targets: Windows x64, macOS Intel/Apple Silicon, and Linux
+x64/arm64 with glibc. The extracted package is tested on Linux. Windows/macOS
+launchers are included but have not been run on those operating systems here.
+If your computer blocks downloaded scripts, use a permitted terminal or ask its
+administrator; do not change managed security policies.
+
+Runtime sources: Node.js24.22.0 from nodejs.org with pinned official SHA256;
+FFmpeg/ffprobe b6.1.1 from github.com/eugeneware/ffmpeg-static, verified against
+published release-asset SHA256. Tool licenses and README files are retained in
+.vanta-runtime/tools. npm checks dependency integrity against package-lock.json.
+
+Live paid AI generation has not been verified without an xAI key. Automated
+checks use a mocked provider and real video encoding; no key is bundled.

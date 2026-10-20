@@ -99,7 +99,7 @@ with sync_playwright() as p:
         assert page.locator('#generation-engine').input_value() == 'ai'
         if not args.url:
             assert page.get_by_role('button', name='Generate AI scene', exact=True).is_disabled()
-            assert 'server version' in page.locator('.ai-setup-message').inner_text()
+            assert 'cannot generate AI scenes' in page.locator('.ai-setup-message').inner_text()
             page.locator('input[aria-label="Add images"]').set_input_files([image_file('reference-red',(255,0,0)),image_file('reference-blue',(0,0,255))])
             page.wait_for_function('document.querySelectorAll(".settings-panel .storyboard-image").length===2')
             page.get_by_label('Full scene prompt', exact=True).fill('Put both subjects into one continuous moving scene.')

@@ -8,6 +8,12 @@ Grok for subject animation. It needs a server-side `XAI_API_KEY` and xAI credits
 Reference scenes use a native 720p source, exported as a labeled 1080p upscale.
 The integration is tested with mocks; live paid generation is not yet verified.
 
+**Run AI on your computer:** [Download VANTA-AI-LOCAL-SERVER.zip](downloads/VANTA-AI-LOCAL-SERVER.zip),
+extract it, and open START-VANTA.cmd (Windows) or START-VANTA.command (Mac) inside
+VANTA-AI. The launcher downloads verified runtime/video tools and opens the app
+in your browser. Enter your own xAI API key privately in its terminal. Keep the
+terminal open. Linux: run `bash start-vanta.sh`. See the included START-HERE.txt.
+
 Camera sequence exports up to six ordered photos with pan/zoom at 1080p and an
 extension popup. It needs no API key. [Download the offline camera app](downloads/README.md),
 extract the ZIP, open VANTA-OPEN.html in Chrome/Edge, and select **Camera sequence**.
