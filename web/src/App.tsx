@@ -36,7 +36,7 @@ import {
 
 type Motion = "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "still";
 type Format = "landscape" | "portrait" | "square";
-type AiBackend = "ltx" | "xzakut-wan";
+type AiBackend = "vanta-motion";
 type SoundMode = "silent" | "auto";
 type Video = {
   id: string;
@@ -114,9 +114,8 @@ export default function App() {
   const [page, setPage] = useState<"create" | "library">("create");
   const [files, setFiles] = useState<File[]>([]);
   const [engine, setEngine] = useState<"ai" | "camera">("ai");
-  const [aiBackend, setAiBackend] = useState<AiBackend>("ltx");
-  const [referenceAiAvailable, setReferenceAiAvailable] = useState(false);
-  const [xzakutAvailable, setXzakutAvailable] = useState(false);
+  const [aiBackend] = useState<AiBackend>("vanta-motion");
+  const [vantaAvailable, setVantaAvailable] = useState(false);
   const [checkingAi, setCheckingAi] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [backgroundIndex, setBackgroundIndex] = useState(0);
@@ -150,8 +149,7 @@ export default function App() {
   const sourceVersion = useRef(0);
   const active =
     submitting || job?.status === "queued" || job?.status === "processing";
-  const aiAvailable =
-    aiBackend === "xzakut-wan" ? xzakutAvailable : referenceAiAvailable;
+  const aiAvailable = vantaAvailable;
   const resolvedMotion =
     engine === "camera" ? promptMotion(prompt) || motion : motion;
   const selectedMotion = motions.find((item) => item.id === resolvedMotion)!;
@@ -166,11 +164,10 @@ export default function App() {
       extension?: string;
       storageWarning?: string;
       ai?: boolean;
-      referenceAi?: boolean;
-      xzakutMotion?: boolean;
+      vantaMotion?: boolean;
+      referenceCore?: string;
     }>("/api/capabilities").then((info) => {
-      setReferenceAiAvailable(info.referenceAi === true);
-      setXzakutAvailable(info.xzakutMotion === true);
+      setVantaAvailable(info.vantaMotion === true);
       if (info.extension) setExportExtension(info.extension);
       if (info.storageWarning) setError(info.storageWarning);
       return info;
@@ -180,19 +177,12 @@ export default function App() {
     setError(null);
     try {
       const info = await refreshCapabilities();
-      const ready =
-        aiBackend === "xzakut-wan"
-          ? info.xzakutMotion === true
-          : info.referenceAi === true;
-      if (!ready)
+      if (info.vantaMotion !== true)
         setError(
-          aiBackend === "xzakut-wan"
-            ? "XZAKUT Motion is not ready. VANTA needs the existing XZAKUT_TRAINING_NATIVE Wan runtime and trained LoRA."
-            : "Reference AI is not ready. Check the local LTX model and Python paths, then restart VANTA.",
+          "VANTA Motion Core is not ready. Check the existing XZAKUT_TRAINING_NATIVE Wan runtime and trained motion weights.",
         );
     } catch (err) {
-      if (aiBackend === "xzakut-wan") setXzakutAvailable(false);
-      else setReferenceAiAvailable(false);
+      setVantaAvailable(false);
       setError(
         err instanceof Error ? err.message : "Could not check the AI server.",
       );
@@ -293,10 +283,8 @@ export default function App() {
     setError(null);
     setLoadingImage(true);
     try {
-      if (engine === "ai" && aiBackend === "xzakut-wan")
-        throw new Error("XZAKUT Motion is prompt-only. Switch to Reference AI (LTX) to use images.");
-      if (engine === "ai" && files.length + candidates.length > 4)
-        throw new Error("Choose up to four AI reference images.");
+      if (engine === "ai")
+        throw new Error("VANTA Motion Core is prompt-only while VANTA Reference Core is being trained.");
       const next = await validateImages(candidates, files);
       if (version === sourceVersion.current) {
         setFiles(next);
@@ -417,21 +405,12 @@ export default function App() {
   async function generate() {
     if (active) return;
     if (engine !== "ai" && !file) return;
-    if (engine === "ai" && aiBackend === "ltx" && !file) {
-      setError("Reference AI needs at least one image.");
-      return;
-    }
     if (
       engine === "ai" &&
-      (!aiAvailable ||
-        !prompt.trim() ||
-        (aiBackend === "ltx" && files.length > 4) ||
-        (aiBackend === "xzakut-wan" && files.length > 0))
+      (!aiAvailable || !prompt.trim() || files.length > 0)
     ) {
       setError(
-        aiBackend === "xzakut-wan"
-          ? "XZAKUT Motion needs its trained Wan runtime, a scene prompt, and no reference images."
-          : "Reference AI needs the local LTX model, 1–4 reference images, and a scene prompt.",
+        "VANTA Motion Core needs the local trained motion runtime, a scene prompt, and no reference images yet.",
       );
       return;
     }
@@ -643,47 +622,23 @@ export default function App() {
                   </select>
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? aiBackend === "xzakut-wan"
-                        ? "Use the custom XZAKUT motion LoRA we trained on your Wan 2.1 1.3B stack. This mode is prompt-only."
-                        : "Generate AI movement using 1–4 references, a selected background, and your prompt."
+                      ? "VANTA Motion Core uses our trained local motion stack. No LTX, no cloud credits, no hidden fallback."
                       : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
                   </p>
                   {engine === "ai" && (
-                    <>
-                      <label className="field-label" htmlFor="ai-backend">
-                        AI engine
-                      </label>
-                      <select
-                        id="ai-backend"
-                        className="engine-select"
-                        value={aiBackend}
-                        disabled={!!active}
-                        onChange={(event) => {
-                          const next = event.target.value as AiBackend;
-                          setAiBackend(next);
-                          setFiles([]);
-                          setBackgroundIndex(0);
-                          setJob(null);
-                          setPreviewMotion(false);
-                        }}
-                      >
-                        <option value="ltx">
-                          Reference AI · LTX · 1–4 images
-                        </option>
-                        <option value="xzakut-wan">
-                          XZAKUT Motion · trained Wan LoRA · prompt only
-                        </option>
-                      </select>
-                    </>
+                    <div className="reference-controls">
+                      <strong>VANTA Motion Core</strong>
+                      <p className="prompt-explanation">
+                        Our current trained motion core is prompt-driven. VANTA Reference Core is the next adapter we train so image references return without using another video model.
+                      </p>
+                    </div>
                   )}
                   {engine === "ai" && !aiAvailable && (
                     <div className="ai-setup-message" role="status">
                       <p>
                         {runtime.standalone
-                          ? "This standalone HTML can animate camera movement only. For genuine AI subject movement, start the PC server with your local LTX model. No credits are needed."
-                          : aiBackend === "xzakut-wan"
-                            ? "XZAKUT Motion uses the Wan 2.1 1.3B + trained XZAKUT LoRA files already on this PC."
-                            : "Reference AI uses your installed LTX model. Add up to four references and choose the background source."}
+                          ? "This standalone HTML can animate camera movement only. Start the PC server for VANTA Motion Core."
+                          : "VANTA Motion Core needs the existing XZAKUT_TRAINING_NATIVE runtime and trained weights on this PC."}
                       </p>
                       <div className="ai-setup-actions">
                         {runtime.standalone && (
@@ -724,109 +679,48 @@ export default function App() {
                   <div className="section-title">
                     <h2>
                       <span className="step">01</span>{" "}
-                      {engine === "ai"
-                        ? aiBackend === "xzakut-wan"
-                          ? "Trained motion model"
-                          : "Scene references · up to 4"
-                        : "Your images"}
+                      {engine === "ai" ? "VANTA Motion Core" : "Your images"}
                     </h2>
                     <span className="small-label">
-                      {engine === "ai" && aiBackend === "xzakut-wan" ? "PROMPT ONLY" : "JPG, PNG, WEBP"}
+                      {engine === "ai" ? "OUR TRAINED CORE" : "JPG, PNG, WEBP"}
                     </span>
                   </div>
-                  {engine === "ai" && aiBackend === "xzakut-wan" ? (
+                  {engine === "ai" ? (
                     <div className="reference-controls">
-                      <strong>XZAKUT Motion</strong>
+                      <strong>Prompt-driven generation</strong>
                       <p className="prompt-explanation">
-                        Uses our trained Wan LoRA with the same Wan 2.1 T2V 1.3B base it was trained on. Image references stay in Reference AI because this installed checkpoint is T2V, not I2V.
+                        Reference images are intentionally disabled until VANTA Reference Core is trained. We are not substituting another video model.
                       </p>
                     </div>
                   ) : (
-                  <ImageSelector
-                    files={files}
-                    maxImages={engine === "ai" ? 4 : 6}
-                    references={engine === "ai"}
-                    onAdd={selectFiles}
-                    onChange={(next) => {
-                      sourceVersion.current++;
-                      setFiles(next);
-                      if (backgroundIndex >= next.length) setBackgroundIndex(0);
-                      setJob(null);
-                      setPreviewMotion(false);
-                    }}
-                    disabled={!!active}
-                    loading={loadingImage}
-                  />
-                  )}
-                  {engine === "ai" && aiBackend === "ltx" && files.length > 0 && (
-                    <div className="reference-controls">
-                      <label className="field-label" htmlFor="background-reference">
-                        Use background from
-                      </label>
-                      <select
-                        id="background-reference"
-                        className="engine-select"
-                        value={Math.min(backgroundIndex, Math.max(0, files.length - 1))}
-                        disabled={!!active}
-                        onChange={(event) => {
-                          setBackgroundIndex(Number(event.target.value));
+                    <>
+                      <ImageSelector
+                        files={files}
+                        maxImages={6}
+                        references={false}
+                        onAdd={selectFiles}
+                        onChange={(next) => {
+                          sourceVersion.current++;
+                          setFiles(next);
                           setJob(null);
+                          setPreviewMotion(false);
                         }}
+                        disabled={!!active}
+                        loading={loadingImage}
+                      />
+                      <button
+                        className="example-button"
+                        disabled={active || loadingImage || files.length >= 6}
+                        onClick={useExample}
                       >
-                        {files.map((file, index) => (
-                          <option key={`${file.name}-${index}`} value={index}>
-                            Image {index + 1} · {file.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="reference-preserve-options">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={keepIdentity}
-                            disabled={!!active}
-                            onChange={(event) => {
-                              setKeepIdentity(event.target.checked);
-                              setJob(null);
-                            }}
-                          />
-                          Keep identity
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={keepOutfit}
-                            disabled={!!active}
-                            onChange={(event) => {
-                              setKeepOutfit(event.target.checked);
-                              setJob(null);
-                            }}
-                          />
-                          Keep outfit / hair / makeup
-                        </label>
-                      </div>
-                      <p className="prompt-explanation">
-                        The chosen image is the primary environment/background anchor.
-                        Other references are used as appearance guides.
-                      </p>
-                    </div>
+                        <img src={runtime.exampleImage} alt="" />
+                        <span>
+                          No image handy? <strong>Try an example</strong>
+                        </span>
+                        <ArrowUpRight size={15} />
+                      </button>
+                    </>
                   )}
-                  <button
-                    className="example-button"
-                    disabled={
-                      active ||
-                      loadingImage ||
-                      (engine === "ai" && aiBackend === "xzakut-wan") ||
-                      files.length >= (engine === "ai" ? 4 : 6)
-                    }
-                    onClick={useExample}
-                  >
-                    <img src={runtime.exampleImage} alt="" />
-                    <span>
-                      No image handy? <strong>Try an example</strong>
-                    </span>
-                    <ArrowUpRight size={15} />
-                  </button>
                   <div className="section-divider" />
                   <div className="section-title">
                     <h2>
@@ -855,9 +749,7 @@ export default function App() {
                     }}
                     placeholder={
                       engine === "ai"
-                        ? aiBackend === "xzakut-wan"
-                          ? "Describe the full motion scene for XZAKUT Motion…"
-                          : "Put <IMAGE_0> and <IMAGE_1> together in one scene. They walk side by side with natural movement…"
+                        ? "Describe the full VANTA motion scene, physical actions, camera behavior, pacing, lighting, and environment…"
                         : "Slowly pan left across the landscape…"
                     }
                   />
@@ -906,9 +798,7 @@ export default function App() {
                   )}
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? aiBackend === "xzakut-wan"
-                        ? "This uses the trained XZAKUT Wan LoRA locally. It changes motion/style behavior, but it is not an image-identity model."
-                        : "Your prompt and references stay on this PC. The selected background reference is anchored strongest; the other images guide identity and outfit. Local models can still drift on difficult shots."
+                      ? "This uses VANTA Motion Core locally. Reference conditioning will return through our own VANTA Reference Core adapter."
                       : `${promptMotion(prompt) ? `Camera direction: ${selectedMotion.title}.` : "Camera words control movement; other details are saved as notes."} This mode does not generate AI subject motion.`}
                   </p>
                   <div className="section-divider" />
@@ -1039,8 +929,7 @@ export default function App() {
                       (engine === "ai" &&
                         (!aiAvailable ||
                           !prompt.trim() ||
-                          (aiBackend === "ltx" && (!file || files.length > 4)) ||
-                          (aiBackend === "xzakut-wan" && files.length > 0)))
+                          files.length > 0))
                     }
                     onClick={generate}
                   >
@@ -1066,9 +955,7 @@ export default function App() {
                   </button>
                   <p className="settings-footnote">
                     {engine === "ai"
-                      ? aiBackend === "xzakut-wan"
-                        ? "XZAKUT trained Wan LoRA · local GPU → 1080p upscale"
-                        : "Reference AI · local LTX → 1080p upscale"
+                      ? "VANTA Motion Core · our trained local stack → 1080p upscale"
                       : `Camera animation · 24 fps · 1080p ${exportExtension.toUpperCase()} export`}
                   </p>
                 </section>
@@ -1515,8 +1402,8 @@ export default function App() {
             <h2 id="help-title">From still to scene.</h2>
             <p>
               {runtime.standalone
-                ? "Select Camera sequence to animate one to six JPG, PNG, or WebP images in your browser. MP4 is preferred; browsers without MP4 recording use WebM. Real AI subject movement requires the PC server with your local LTX model."
-                : "Select AI scene to animate one reference image using your local LTX model. No credits or API key are needed. Camera sequence animates up to six ordered photos with FFmpeg and supports extensions."}
+                ? "Select Camera sequence to animate one to six JPG, PNG, or WebP images in your browser. MP4 is preferred; browsers without MP4 recording use WebM. Real AI subject movement requires the PC server with your local VANTA Motion Core model."
+                : "Select AI scene to animate one reference image using your local VANTA Motion Core model. No credits or API key are needed. Camera sequence animates up to six ordered photos with FFmpeg and supports extensions."}
             </p>
             <div className="help-detail">
               <Clock3 size={19} />
