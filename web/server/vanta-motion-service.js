@@ -47,8 +47,8 @@ function execute(command, args, { cwd, signal, maxMs = 2_700_000 } = {}) {
     };
     child.once("error", error => finish(new RenderError(
       error.code === "ENOENT"
-        ? "The VANTA Motion Core runtime could not be found."
-        : "The VANTA Motion Core process could not start.",
+        ? `Missing executable: ${path.basename(command)}`
+        : `VANTA could not start ${path.basename(command)}.`,
       503,
     )));
     child.once("close", code => {
