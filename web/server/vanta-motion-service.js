@@ -470,14 +470,31 @@ export class VantaMotionService extends XaiService {
 
       job.stage = job.soundMode === "auto" ? "adding-audio" : "finalizing";
       job.progress = 90;
-      const audio = await this.audioService.apply({
-        soundMode: job.soundMode,
-        speedMode: job.speedMode,
-        videoPath: this.filePath(job.id),
-        prompt: job.prompt,
-        workDir: work.workDir,
-        signal,
-      });
+
+      // Give Foley the GPU to itself. Keeping the resident video DiT loaded
+      // during Auto Sound causes VRAM pressure and can make the audio pass
+      // much slower on 16 GB cards.
+      const shouldRestartResident = job.soundMode === "auto" && !this.closed;
+      if (job.soundMode === "auto") this.stopResident();
+
+      let audio;
+      try {
+        audio = await this.audioService.apply({
+          soundMode: job.soundMode,
+          speedMode: job.speedMode,
+          videoPath: this.filePath(job.id),
+          prompt: job.prompt,
+          workDir: work.workDir,
+          signal,
+        });
+      } finally {
+        if (shouldRestartResident && !signal.aborted && !this.closed) {
+          // Reload in the background after Foley finishes so the next video
+          // render can reuse the resident motion core again.
+          this.startResident();
+        }
+      }
+
       job.hasAudio = audio.hasAudio;
       job.audioEngine = audio.audioEngine;
       job.warning = audio.warning;
