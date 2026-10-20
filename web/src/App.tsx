@@ -551,7 +551,7 @@ export default function App() {
               <ShieldCheck size={16} />
               <span>
                 <strong>Offline camera app.</strong> Camera sequences work in
-                this file. AI scenes require the server app and an xAI API key.
+                this file. Real AI scenes require the local PC server and LTX model, not credits.
               </span>
             </div>
           )}
@@ -566,7 +566,7 @@ export default function App() {
                     Give your scene a little life<span>.</span>
                   </h1>
                   <p>
-                    Combine your references. Describe the action. Create one
+                    Choose your starting photo. Describe the action. Create a moving
                     scene.
                   </p>
                 </div>
@@ -612,11 +612,11 @@ export default function App() {
                       <div className="ai-setup-actions">
                         {runtime.standalone && (
                           <a
-                            href="https://raw.githubusercontent.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/refs/heads/codex/vanta-browser-studio/downloads/VANTA-AI-LOCAL-SERVER.zip"
+                            href="https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/archive/refs/heads/codex/vanta-browser-studio.zip"
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            Download computer app
+                            Download no-credit PC source
                           </a>
                         )}
                         <a
