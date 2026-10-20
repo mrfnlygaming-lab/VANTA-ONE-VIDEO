@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
-import { LocalWanService } from "./local-wan-service.js";
+import { VantaMotionService } from "./vanta-motion-service.js";
 import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
@@ -25,7 +25,7 @@ export async function createApp(options = {}) {
   await service.init();
   app.locals.videoService = service;
   // VANTA Motion Core: one local engine, no cloud provider and no LTX.
-  const wanService = new LocalWanService({
+  const wanService = new VantaMotionService({
     dataDir: options.dataDir ?? path.join(webDir, ".data"),
     ffmpegPath,
     ffprobePath,
@@ -74,7 +74,7 @@ export async function createApp(options = {}) {
       aiNeedsLocalModel: !wanService.configured,
       aiMaxImages: 0,
       aiModel: wanService.configured
-        ? "VANTA Motion Core · XZAKUT trained Wan"
+        ? "VANTA Motion Core · trained local motion stack"
         : null,
       outputResolution: "1080p",
       aiSourceResolution: "480x832 / 832x480",
