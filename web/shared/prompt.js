@@ -1,6 +1,6 @@
 export const MAX_IMAGES = 6;
 export const MAX_TOTAL_DURATION = 60;
-export const MAX_PROMPT_LENGTH = 1000;
+export const MAX_PROMPT_LENGTH = 4000;
 
 // Prompts choose a supported camera move. Other words remain a saved scene note.
 export function promptMotion(prompt) {
