@@ -163,6 +163,7 @@ export class XaiService {
     this.pollTimeoutMs = Math.max(1, pollTimeoutMs);
     this.maxPending = maxPending;
     this.maxCompleted = maxCompleted;
+    this.minReferenceImages = 1;
     this.maxReferenceImages = 3;
     this.jobs = new Map();
     this.work = new Map();
@@ -224,7 +225,7 @@ export class XaiService {
   }
 
   publicJob(job) {
-    const fields = ["id", "status", "progress", "createdAt", "completedAt", "engine", "model", "extendable", "canCancel", "cancelWarning", "prompt", "motion", "parentId", "requestedDuration", "duration", "addedDuration", "imageCount", "backgroundIndex", "keepIdentity", "keepOutfit", "format", "width", "height", "sourceWidth", "sourceHeight", "sourceResolution", "outputResolution", "upscaled", "filename", "mimeType", "extension", "error"];
+    const fields = ["id", "status", "progress", "createdAt", "completedAt", "engine", "aiBackend", "model", "extendable", "canCancel", "cancelWarning", "prompt", "motion", "parentId", "requestedDuration", "duration", "addedDuration", "imageCount", "backgroundIndex", "keepIdentity", "keepOutfit", "soundMode", "audioEngine", "hasAudio", "warning", "format", "width", "height", "sourceWidth", "sourceHeight", "sourceResolution", "outputResolution", "upscaled", "filename", "mimeType", "extension", "error"];
     return {
       ...Object.fromEntries(fields.filter(field => Object.hasOwn(job, field)).map(field => [field, job[field]])),
       fileUrl: job.status === "completed" ? `/api/videos/${job.id}/file` : null,
@@ -240,9 +241,14 @@ export class XaiService {
     this._ready();
     cancelled(signal);
     if (parentId) throw new RenderError("AI video extension is not supported. Create a new AI video, or extend a camera-motion video.", 422);
-    if (!Array.isArray(files) || files.length < 1 || files.length > this.maxReferenceImages)
-      throw new RenderError(`AI generation supports between 1 and ${this.maxReferenceImages} reference images.`, 400);
-    if (!Number.isInteger(backgroundIndex) || backgroundIndex < 0 || backgroundIndex >= files.length)
+    if (!Array.isArray(files) || files.length < this.minReferenceImages || files.length > this.maxReferenceImages)
+      throw new RenderError(
+        this.minReferenceImages === 0 && this.maxReferenceImages === 0
+          ? "This trained motion engine is prompt-only and does not accept reference images."
+          : `AI generation supports between ${this.minReferenceImages} and ${this.maxReferenceImages} reference images.`,
+        400
+      );
+    if (files.length > 0 && (!Number.isInteger(backgroundIndex) || backgroundIndex < 0 || backgroundIndex >= files.length))
       throw new RenderError("Choose which reference image supplies the scene background.", 400);
     if (typeof prompt !== "string" || !prompt.trim() || prompt.length > MAX_PROMPT_LENGTH)
       throw new RenderError(`Describe your AI video in a prompt of 1 to ${MAX_PROMPT_LENGTH} characters.`, 400);
