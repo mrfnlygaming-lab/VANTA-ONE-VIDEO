@@ -36,6 +36,8 @@ import {
 
 type Motion = "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "still";
 type Format = "landscape" | "portrait" | "square";
+type AiBackend = "ltx" | "xzakut-wan";
+type SoundMode = "silent" | "auto";
 type Video = {
   id: string;
   status: string;
@@ -57,6 +59,10 @@ type Video = {
   addedDuration?: number;
   imageCount?: number;
   engine?: "ai" | "camera";
+  aiBackend?: AiBackend;
+  hasAudio?: boolean;
+  audioEngine?: string | null;
+  soundMode?: SoundMode;
   extendable?: boolean;
   upscaled?: boolean;
   sourceResolution?: string;
@@ -108,12 +114,15 @@ export default function App() {
   const [page, setPage] = useState<"create" | "library">("create");
   const [files, setFiles] = useState<File[]>([]);
   const [engine, setEngine] = useState<"ai" | "camera">("ai");
-  const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiBackend, setAiBackend] = useState<AiBackend>("ltx");
+  const [referenceAiAvailable, setReferenceAiAvailable] = useState(false);
+  const [xzakutAvailable, setXzakutAvailable] = useState(false);
   const [checkingAi, setCheckingAi] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [backgroundIndex, setBackgroundIndex] = useState(0);
   const [keepIdentity, setKeepIdentity] = useState(true);
   const [keepOutfit, setKeepOutfit] = useState(true);
+  const [soundMode, setSoundMode] = useState<SoundMode>("silent");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
@@ -141,6 +150,8 @@ export default function App() {
   const sourceVersion = useRef(0);
   const active =
     submitting || job?.status === "queued" || job?.status === "processing";
+  const aiAvailable =
+    aiBackend === "xzakut-wan" ? xzakutAvailable : referenceAiAvailable;
   const resolvedMotion =
     engine === "camera" ? promptMotion(prompt) || motion : motion;
   const selectedMotion = motions.find((item) => item.id === resolvedMotion)!;
@@ -151,10 +162,15 @@ export default function App() {
       setVideos(data.videos),
     );
   const refreshCapabilities = () =>
-    api<{ extension?: string; storageWarning?: string; ai?: boolean }>(
-      "/api/capabilities",
-    ).then((info) => {
-      setAiAvailable(info.ai === true);
+    api<{
+      extension?: string;
+      storageWarning?: string;
+      ai?: boolean;
+      referenceAi?: boolean;
+      xzakutMotion?: boolean;
+    }>("/api/capabilities").then((info) => {
+      setReferenceAiAvailable(info.referenceAi === true);
+      setXzakutAvailable(info.xzakutMotion === true);
       if (info.extension) setExportExtension(info.extension);
       if (info.storageWarning) setError(info.storageWarning);
       return info;
@@ -164,12 +180,19 @@ export default function App() {
     setError(null);
     try {
       const info = await refreshCapabilities();
-      if (!info.ai)
+      const ready =
+        aiBackend === "xzakut-wan"
+          ? info.xzakutMotion === true
+          : info.referenceAi === true;
+      if (!ready)
         setError(
-          "The local LTX model is not ready. Set LTX_DIR and LTX_PYTHON on your PC, verify the model files, restart VANTA, then check again. No credits are needed.",
+          aiBackend === "xzakut-wan"
+            ? "XZAKUT Motion is not ready. VANTA needs the existing XZAKUT_TRAINING_NATIVE Wan runtime and trained LoRA."
+            : "Reference AI is not ready. Check the local LTX model and Python paths, then restart VANTA.",
         );
     } catch (err) {
-      setAiAvailable(false);
+      if (aiBackend === "xzakut-wan") setXzakutAvailable(false);
+      else setReferenceAiAvailable(false);
       setError(
         err instanceof Error ? err.message : "Could not check the AI server.",
       );
@@ -270,6 +293,8 @@ export default function App() {
     setError(null);
     setLoadingImage(true);
     try {
+      if (engine === "ai" && aiBackend === "xzakut-wan")
+        throw new Error("XZAKUT Motion is prompt-only. Switch to Reference AI (LTX) to use images.");
       if (engine === "ai" && files.length + candidates.length > 4)
         throw new Error("Choose up to four AI reference images.");
       const next = await validateImages(candidates, files);
@@ -390,13 +415,23 @@ export default function App() {
   }
 
   async function generate() {
-    if (!file || active) return;
+    if (active) return;
+    if (engine !== "ai" && !file) return;
+    if (engine === "ai" && aiBackend === "ltx" && !file) {
+      setError("Reference AI needs at least one image.");
+      return;
+    }
     if (
       engine === "ai" &&
-      (!aiAvailable || !prompt.trim() || files.length > 4)
+      (!aiAvailable ||
+        !prompt.trim() ||
+        (aiBackend === "ltx" && files.length > 4) ||
+        (aiBackend === "xzakut-wan" && files.length > 0))
     ) {
       setError(
-        "Local AI video needs the PC server, a working LTX model, 1–4 reference images, and a scene prompt. No API key or credits.",
+        aiBackend === "xzakut-wan"
+          ? "XZAKUT Motion needs its trained Wan runtime, a scene prompt, and no reference images."
+          : "Reference AI needs the local LTX model, 1–4 reference images, and a scene prompt.",
       );
       return;
     }
@@ -408,6 +443,8 @@ export default function App() {
       files.forEach((image) => data.append("image", image));
       data.append("prompt", engine === "ai" ? prompt : prompt.trim());
       data.append("engine", engine);
+      data.append("aiBackend", aiBackend);
+      data.append("soundMode", soundMode);
       data.append("backgroundIndex", String(backgroundIndex));
       data.append("keepIdentity", String(keepIdentity));
       data.append("keepOutfit", String(keepOutfit));
@@ -606,15 +643,47 @@ export default function App() {
                   </select>
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Generate genuine AI movement using 1–4 references and your prompt, entirely on your PC."
+                      ? aiBackend === "xzakut-wan"
+                        ? "Use the custom XZAKUT motion LoRA we trained on your Wan 2.1 1.3B stack. This mode is prompt-only."
+                        : "Generate AI movement using 1–4 references, a selected background, and your prompt."
                       : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
                   </p>
+                  {engine === "ai" && (
+                    <>
+                      <label className="field-label" htmlFor="ai-backend">
+                        AI engine
+                      </label>
+                      <select
+                        id="ai-backend"
+                        className="engine-select"
+                        value={aiBackend}
+                        disabled={!!active}
+                        onChange={(event) => {
+                          const next = event.target.value as AiBackend;
+                          setAiBackend(next);
+                          setFiles([]);
+                          setBackgroundIndex(0);
+                          setJob(null);
+                          setPreviewMotion(false);
+                        }}
+                      >
+                        <option value="ltx">
+                          Reference AI · LTX · 1–4 images
+                        </option>
+                        <option value="xzakut-wan">
+                          XZAKUT Motion · trained Wan LoRA · prompt only
+                        </option>
+                      </select>
+                    </>
+                  )}
                   {engine === "ai" && !aiAvailable && (
                     <div className="ai-setup-message" role="status">
                       <p>
                         {runtime.standalone
                           ? "This standalone HTML can animate camera movement only. For genuine AI subject movement, start the PC server with your local LTX model. No credits are needed."
-                          : "Local AI needs your installed LTX-Video model. Add up to four references, choose which one supplies the background, then generate locally. There is no paid API."}
+                          : aiBackend === "xzakut-wan"
+                            ? "XZAKUT Motion uses the Wan 2.1 1.3B + trained XZAKUT LoRA files already on this PC."
+                            : "Reference AI uses your installed LTX model. Add up to four references and choose the background source."}
                       </p>
                       <div className="ai-setup-actions">
                         {runtime.standalone && (
@@ -655,10 +724,24 @@ export default function App() {
                   <div className="section-title">
                     <h2>
                       <span className="step">01</span>{" "}
-                      {engine === "ai" ? "Scene references · up to 4" : "Your images"}
+                      {engine === "ai"
+                        ? aiBackend === "xzakut-wan"
+                          ? "Trained motion model"
+                          : "Scene references · up to 4"
+                        : "Your images"}
                     </h2>
-                    <span className="small-label">JPG, PNG, WEBP</span>
+                    <span className="small-label">
+                      {engine === "ai" && aiBackend === "xzakut-wan" ? "PROMPT ONLY" : "JPG, PNG, WEBP"}
+                    </span>
                   </div>
+                  {engine === "ai" && aiBackend === "xzakut-wan" ? (
+                    <div className="reference-controls">
+                      <strong>XZAKUT Motion</strong>
+                      <p className="prompt-explanation">
+                        Uses our trained Wan LoRA with the same Wan 2.1 T2V 1.3B base it was trained on. Image references stay in Reference AI because this installed checkpoint is T2V, not I2V.
+                      </p>
+                    </div>
+                  ) : (
                   <ImageSelector
                     files={files}
                     maxImages={engine === "ai" ? 4 : 6}
@@ -674,7 +757,8 @@ export default function App() {
                     disabled={!!active}
                     loading={loadingImage}
                   />
-                  {engine === "ai" && files.length > 0 && (
+                  )}
+                  {engine === "ai" && aiBackend === "ltx" && files.length > 0 && (
                     <div className="reference-controls">
                       <label className="field-label" htmlFor="background-reference">
                         Use background from
@@ -732,6 +816,7 @@ export default function App() {
                     disabled={
                       active ||
                       loadingImage ||
+                      (engine === "ai" && aiBackend === "xzakut-wan") ||
                       files.length >= (engine === "ai" ? 4 : 6)
                     }
                     onClick={useExample}
@@ -770,7 +855,9 @@ export default function App() {
                     }}
                     placeholder={
                       engine === "ai"
-                        ? "Put <IMAGE_0> and <IMAGE_1> together in one scene. They walk side by side, with natural body movement and a continuous camera shot…"
+                        ? aiBackend === "xzakut-wan"
+                          ? "Describe the full motion scene for XZAKUT Motion…"
+                          : "Put <IMAGE_0> and <IMAGE_1> together in one scene. They walk side by side with natural movement…"
                         : "Slowly pan left across the landscape…"
                     }
                   />
@@ -799,7 +886,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  {engine === "ai" && files.length > 0 && (
+                  {engine === "ai" && aiBackend === "ltx" && files.length > 0 && (
                     <div className="prompt-examples reference-tokens">
                       {files.map((_, index) => (
                         <button
@@ -819,7 +906,9 @@ export default function App() {
                   )}
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Your prompt and references stay on this PC. The selected background reference is anchored strongest; the other images guide identity and outfit. Local models can still drift on difficult shots."
+                      ? aiBackend === "xzakut-wan"
+                        ? "This uses the trained XZAKUT Wan LoRA locally. It changes motion/style behavior, but it is not an image-identity model."
+                        : "Your prompt and references stay on this PC. The selected background reference is anchored strongest; the other images guide identity and outfit. Local models can still drift on difficult shots."
                       : `${promptMotion(prompt) ? `Camera direction: ${selectedMotion.title}.` : "Camera words control movement; other details are saved as notes."} This mode does not generate AI subject motion.`}
                   </p>
                   <div className="section-divider" />
@@ -913,6 +1002,25 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {engine === "ai" && (
+                    <>
+                      <span className="field-label">Sound</span>
+                      <select
+                        className="engine-select"
+                        value={soundMode}
+                        disabled={!!active}
+                        onChange={(event) =>
+                          setSoundMode(event.target.value as SoundMode)
+                        }
+                      >
+                        <option value="silent">Silent · video only</option>
+                        <option value="auto">Auto synced sound · local audio engine</option>
+                      </select>
+                      <p className="prompt-explanation">
+                        Auto sound is designed as a second local pass after the video render so the video and audio models do not fight for VRAM.
+                      </p>
+                    </>
+                  )}
                   <div className="render-note">
                     <ShieldCheck size={15} />
                     <span>
@@ -924,12 +1032,15 @@ export default function App() {
                   <button
                     className="generate-button"
                     disabled={
-                      !file ||
                       active ||
                       loadingImage ||
                       !online ||
+                      (engine !== "ai" && !file) ||
                       (engine === "ai" &&
-                        (!aiAvailable || !prompt.trim() || files.length > 4))
+                        (!aiAvailable ||
+                          !prompt.trim() ||
+                          (aiBackend === "ltx" && (!file || files.length > 4)) ||
+                          (aiBackend === "xzakut-wan" && files.length > 0)))
                     }
                     onClick={generate}
                   >
@@ -955,7 +1066,9 @@ export default function App() {
                   </button>
                   <p className="settings-footnote">
                     {engine === "ai"
-                      ? "Local AI generation · low-res model → 1080p upscale"
+                      ? aiBackend === "xzakut-wan"
+                        ? "XZAKUT trained Wan LoRA · local GPU → 1080p upscale"
+                        : "Reference AI · local LTX → 1080p upscale"
                       : `Camera animation · 24 fps · 1080p ${exportExtension.toUpperCase()} export`}
                   </p>
                 </section>
