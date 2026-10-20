@@ -86,6 +86,13 @@ async function probe(ffprobePath, file, signal) {
 }
 
 const SPEED_PROFILES = {
+  hyper: {
+    steps: 4,
+    fps: 4,
+    landscape: { height: 256, width: 448 },
+    portrait: { height: 448, width: 256 },
+    square: { height: 256, width: 256 },
+  },
   turbo: {
     steps: 6,
     fps: 8,
@@ -109,8 +116,8 @@ const SPEED_PROFILES = {
   },
 };
 
-function renderProfile(format, speedMode = "turbo") {
-  const profile = SPEED_PROFILES[speedMode] || SPEED_PROFILES.turbo;
+function renderProfile(format, speedMode = "hyper") {
+  const profile = SPEED_PROFILES[speedMode] || SPEED_PROFILES.hyper;
   return {
     steps: profile.steps,
     fps: profile.fps,
@@ -183,11 +190,17 @@ export class VantaMotionService extends XaiService {
       "args=sys.argv[2:]",
       "src=open(script,'r',encoding='utf-8').read()",
       "old=\"    text_encoder = None\\n    vae = None\\n    models = None\\n    clip = None\"",
-      "new=\"    logger.info('VANTA resident: eager loading text encoder / VAE / DiT')\\n    text_encoder = load_text_encoder(args, cfg, device)\\n    text_encoder.model.to('cpu')\\n    vae = load_vae(args, cfg, device, vae_dtype)\\n    vae.to_device('cpu')\\n    models = load_dit_models(args, cfg, device, dit_dtype, dit_weight_dtype, is_i2v)\\n    clip = None\"",
+      "new=\"    logger.info('VANTA resident: eager loading text encoder / VAE / DiT')\\n    text_encoder = load_text_encoder(args, cfg, device)\\n    text_encoder.model.to(device)\\n    vae = load_vae(args, cfg, device, vae_dtype)\\n    vae.to_device(device)\\n    models = load_dit_models(args, cfg, device, dit_dtype, dit_weight_dtype, is_i2v)\\n    clip = None\"",
       "src=src.replace(old,new)",
       "old2=\"                # Move model to CPU after generation\\n                for model in models:\\n                    if model is not None:  # not lazy loading\\n                        model.to('cpu')\"",
       "new2=\"                # VANTA resident mode: keep DiT on GPU between generations\\n                pass\"",
       "src=src.replace(old2,new2)",
+      "old3=\"                # Move text encoder to CPU after use\\n                text_encoder.model.to('cpu')\"",
+      "new3=\"                # VANTA resident mode: keep text encoder on GPU\\n                pass\"",
+      "src=src.replace(old3,new3)",
+      "old4=\"                    # Move VAE to CPU after use\\n                    vae.to_device('cpu')\"",
+      "new4=\"                    # VANTA resident mode: keep VAE on GPU\\n                    pass\"",
+      "src=src.replace(old4,new4)",
       "sys.argv=[script]+args",
       "ns={'__name__':'__main__','__file__':script}",
       "exec(compile(src,script,'exec'),ns,ns)",
@@ -198,10 +211,10 @@ export class VantaMotionService extends XaiService {
       "--task", "t2v-1.3B",
       "--fp8",
       "--fp8_t5",
-      "--video_size", "320", "576",
+      "--video_size", "256", "448",
       "--video_length", "9",
-      "--infer_steps", "6",
-      "--fps", "8",
+      "--infer_steps", "4",
+      "--fps", "4",
       "--prompt", "vanta resident startup",
       "--dit", this.dit,
       "--vae", this.vae,
@@ -364,21 +377,23 @@ export class VantaMotionService extends XaiService {
       const outDir = path.join(work.workDir, "wan-output");
       await mkdir(outDir, { recursive: true });
       const fps = size.fps;
-      const frames = Math.max(9, Math.round(job.requestedDuration * fps) + 1);
+      const minimumFrames = (job.speedMode || "hyper") === "hyper" ? 5 : 9;
+      const frames = Math.max(minimumFrames, Math.round(job.requestedDuration * fps) + 1);
       const normalizedFrames = frames + ((4 - ((frames - 1) % 4)) % 4);
 
       const seed = Math.floor(Math.random() * 2147483647);
       let rendered = null;
       job.progress = 12;
 
-      // Prefer the resident worker for Turbo. Balanced/Quality use one-shot
-      // because the upstream interactive prompt format cannot override FPS.
-      const canUseResident = (job.speedMode || "turbo") === "turbo";
+      // Hyper uses the resident worker. Other presets keep their own FPS and
+      // use one-shot generation because the upstream interactive prompt format
+      // cannot override FPS per request.
+      const canUseResident = (job.speedMode || "hyper") === "hyper";
 
       // Prefer the resident worker. It loads the model once and reuses it across
       // generations, removing the repeated disk/model/LoRA setup cost.
       try {
-        if (!canUseResident) throw new Error("resident turbo only");
+        if (!canUseResident) throw new Error("resident hyper only");
         // Do not block the user's first render on a background warm-up render.
         // If warm-up is still running, use the already-started resident process.
         const residentFile = await this.residentGenerate({
@@ -453,11 +468,13 @@ export class VantaMotionService extends XaiService {
         ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos," +
         "pad=" + job.width + ":" + job.height + ":(ow-iw)/2:(oh-ih)/2," +
         "fps=24,setsar=1,format=yuv420p";
+      const encodePreset = (job.speedMode || "hyper") === "hyper" ? "ultrafast" : "veryfast";
+      const encodeCrf = (job.speedMode || "hyper") === "hyper" ? "23" : "20";
       await execute(this.ffmpegPath, [
         "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
         "-i", rendered, "-map", "0:v:0", "-an",
-        "-vf", filter, "-c:v", "libx264", "-preset", "veryfast",
-        "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-vf", filter, "-c:v", "libx264", "-preset", encodePreset,
+        "-crf", encodeCrf, "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         this.partialPath(job.id),
       ], { signal, maxMs: 180_000 });
 
