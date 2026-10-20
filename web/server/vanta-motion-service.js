@@ -114,6 +114,26 @@ function renderProfile(format, speedMode = "turbo") {
   };
 }
 
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function residentMp4s(root) {
+  const files = [];
+  try {
+    for (const name of await readdir(root, { recursive: true })) {
+      if (typeof name !== "string" || !name.toLowerCase().endsWith(".mp4")) continue;
+      const file = path.join(root, name);
+      try {
+        const info = await stat(file);
+        if (info.isFile()) files.push({ file, size: info.size, mtime: info.mtimeMs });
+      } catch {}
+    }
+  } catch {}
+  return files;
+}
+
 export class VantaMotionService extends XaiService {
   constructor(options) {
     super({ ...options, apiKey: "vanta-motion-local" });
@@ -127,6 +147,155 @@ export class VantaMotionService extends XaiService {
     this.t5 = process.env.VANTA_MOTION_T5 || process.env.XZAKUT_WAN_T5 || DEFAULTS.t5;
     this.lora = process.env.VANTA_MOTION_LORA || process.env.XZAKUT_WAN_LORA || DEFAULTS.lora;
     this.audioService = new LocalAudioService({ ffmpegPath: this.ffmpegPath });
+    this.residentDir = path.join(this.videoDir, ".vanta-motion-resident");
+    this.resident = null;
+    this.residentLog = "";
+    this.prewarmPromise = null;
+  }
+
+  async init() {
+    await super.init();
+    await mkdir(this.residentDir, { recursive: true });
+    for (const file of await residentMp4s(this.residentDir))
+      await rm(file.file, { force: true }).catch(() => {});
+    // Warm in the background while the browser UI is opening. First launch still
+    // pays model load once; later generations reuse the same loaded process.
+    this.prewarmPromise = this.prewarmResident().catch(() => null);
+  }
+
+  stopResident() {
+    const child = this.resident;
+    this.resident = null;
+    if (child && !child.killed) child.kill("SIGKILL");
+  }
+
+  startResident() {
+    if (this.resident && !this.resident.killed) return this.resident;
+
+    const bootstrap =
+      "import sys,runpy; sys.modules['prompt_toolkit']=None; " +
+      "script=sys.argv[1]; sys.argv=[script]+sys.argv[2:]; " +
+      "runpy.run_path(script,run_name='__main__')";
+
+    const args = [
+      "-u", "-c", bootstrap, this.script,
+      "--task", "t2v-1.3B",
+      "--fp8",
+      "--fp8_t5",
+      "--video_size", "360", "640",
+      "--video_length", "17",
+      "--infer_steps", "6",
+      "--fps", "16",
+      "--prompt", "vanta resident startup",
+      "--dit", this.dit,
+      "--vae", this.vae,
+      "--t5", this.t5,
+      "--attn_mode", "sdpa",
+      "--output_type", "video",
+      "--vae_cache_cpu",
+      "--save_path", this.residentDir,
+      "--lora_weight", this.lora,
+      "--lora_multiplier", "1.0",
+      "--interactive",
+    ];
+
+    const child = spawn(this.python, args, {
+      cwd: path.dirname(this.script),
+      windowsHide: true,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+        HF_HUB_DISABLE_TELEMETRY: "1",
+      },
+    });
+    this.resident = child;
+    this.residentLog = "";
+    const keepLog = chunk => {
+      this.residentLog = (this.residentLog + chunk.toString()).slice(-64_000);
+    };
+    child.stdout.on("data", keepLog);
+    child.stderr.on("data", keepLog);
+    child.on("close", () => {
+      if (this.resident === child) this.resident = null;
+    });
+    child.on("error", () => {
+      if (this.resident === child) this.resident = null;
+    });
+    return child;
+  }
+
+  async residentGenerate({ prompt, width, height, frames, steps, seed, signal, timeoutMs = 2_700_000 }) {
+    const child = this.startResident();
+    const existing = new Set((await residentMp4s(this.residentDir)).map(item => item.file));
+    const started = Date.now();
+
+    const cleanPrompt = String(prompt || "VANTA motion")
+      .replace(/[\r\n]+/g, " ")
+      .replace(/ --/g, " —")
+      .trim();
+    const line =
+      cleanPrompt +
+      " --w " + width +
+      " --h " + height +
+      " --f " + frames +
+      " --s " + steps +
+      " --d " + seed +
+      "\n";
+
+    const abort = () => this.stopResident();
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      if (!child.stdin.writable) throw new Error("resident stdin unavailable");
+      child.stdin.write(line);
+
+      let lastFile = null;
+      let lastSize = -1;
+      let stableCount = 0;
+      while (Date.now() - started < timeoutMs) {
+        if (signal?.aborted) throw new RenderError("Generation cancelled.", 499);
+        if (!this.resident || this.resident.killed)
+          throw new Error("resident process exited");
+
+        const candidates = (await residentMp4s(this.residentDir))
+          .filter(item => !existing.has(item.file) && item.mtime >= started - 1000)
+          .sort((a, b) => b.mtime - a.mtime);
+        const newest = candidates[0];
+        if (newest && newest.size > 1024) {
+          if (newest.file === lastFile && newest.size === lastSize) stableCount += 1;
+          else {
+            lastFile = newest.file;
+            lastSize = newest.size;
+            stableCount = 0;
+          }
+          if (stableCount >= 2) return newest.file;
+        }
+        await sleep(500);
+      }
+      throw new Error("resident generation timed out");
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
+  }
+
+  async prewarmResident() {
+    if (!this.configured || this.closed) return;
+    try {
+      const file = await this.residentGenerate({
+        prompt: "subtle abstract camera motion",
+        width: 320,
+        height: 320,
+        frames: 17,
+        steps: 1,
+        seed: 1,
+        signal: null,
+        timeoutMs: 900_000,
+      });
+      await rm(file, { force: true }).catch(() => {});
+    } catch {
+      this.stopResident();
+    }
   }
 
   get configured() {
@@ -177,48 +346,72 @@ export class VantaMotionService extends XaiService {
       const frames = Math.max(17, Math.round(job.requestedDuration * fps) + 1);
       const normalizedFrames = frames + ((4 - ((frames - 1) % 4)) % 4);
 
-      const args = [
-        this.script,
-        "--task", "t2v-1.3B",
-        "--fp8",
-        "--video_size", String(size.height), String(size.width),
-        "--video_length", String(normalizedFrames),
-        "--infer_steps", String(size.steps),
-        "--fps", String(fps),
-        "--prompt", job.prompt,
-        "--dit", this.dit,
-        "--vae", this.vae,
-        "--t5", this.t5,
-        "--attn_mode", "sdpa",
-        "--fp8_t5",
-        "--seed", String(Math.floor(Math.random() * 2147483647)),
-        "--output_type", "video",
-        "--vae_cache_cpu",
-        "--save_path", outDir,
-        "--lora_weight", this.lora,
-        "--lora_multiplier", "1.0",
-      ];
+      const seed = Math.floor(Math.random() * 2147483647);
+      let rendered = null;
 
-      await execute(this.python, args, {
-        cwd: path.dirname(this.script),
-        signal,
-        maxMs: 2_700_000,
-      });
-      job.progress = 78;
+      // Prefer the resident worker. It loads the model once and reuses it across
+      // generations, removing the repeated disk/model/LoRA setup cost.
+      try {
+        if (this.prewarmPromise) await this.prewarmPromise;
+        const residentFile = await this.residentGenerate({
+          prompt: job.prompt,
+          width: size.width,
+          height: size.height,
+          frames: normalizedFrames,
+          steps: size.steps,
+          seed,
+          signal,
+        });
+        rendered = path.join(outDir, "resident-source.mp4");
+        await rename(residentFile, rendered);
+      } catch (residentError) {
+        if (signal.aborted) throw residentError;
+        this.stopResident();
 
-      const names = await readdir(outDir, { recursive: true });
-      const videos = [];
-      for (const name of names) {
-        if (typeof name !== "string" || !name.toLowerCase().endsWith(".mp4")) continue;
-        const candidate = path.join(outDir, name);
-        try {
-          const info = await stat(candidate);
-          if (info.isFile()) videos.push({ path: candidate, mtime: info.mtimeMs });
-        } catch {}
+        // Safe fallback: one-shot generation still works if the resident process
+        // cannot start on this Windows/Python setup.
+        const args = [
+          this.script,
+          "--task", "t2v-1.3B",
+          "--fp8",
+          "--fp8_t5",
+          "--video_size", String(size.height), String(size.width),
+          "--video_length", String(normalizedFrames),
+          "--infer_steps", String(size.steps),
+          "--fps", String(fps),
+          "--prompt", job.prompt,
+          "--dit", this.dit,
+          "--vae", this.vae,
+          "--t5", this.t5,
+          "--attn_mode", "sdpa",
+          "--seed", String(seed),
+          "--output_type", "video",
+          "--vae_cache_cpu",
+          "--save_path", outDir,
+          "--lora_weight", this.lora,
+          "--lora_multiplier", "1.0",
+        ];
+        await execute(this.python, args, {
+          cwd: path.dirname(this.script),
+          signal,
+          maxMs: 2_700_000,
+        });
+
+        const names = await readdir(outDir, { recursive: true });
+        const videos = [];
+        for (const name of names) {
+          if (typeof name !== "string" || !name.toLowerCase().endsWith(".mp4")) continue;
+          const candidate = path.join(outDir, name);
+          try {
+            const info = await stat(candidate);
+            if (info.isFile()) videos.push({ path: candidate, mtime: info.mtimeMs });
+          } catch {}
+        }
+        videos.sort((a, b) => b.mtime - a.mtime);
+        if (!videos.length) throw new RenderError("VANTA Motion Core finished without an MP4.", 502);
+        rendered = videos[0].path;
       }
-      videos.sort((a, b) => b.mtime - a.mtime);
-      if (!videos.length) throw new RenderError("VANTA Motion Core finished without an MP4.", 502);
-      const rendered = videos[0].path;
+      job.progress = 78;
       const source = await probe(this.ffprobePath, rendered, signal);
 
       const filter = "scale=" + job.width + ":" + job.height +
@@ -272,5 +465,10 @@ export class VantaMotionService extends XaiService {
       this.controllers.delete(job.id);
       await this.cleanupSources(job.id);
     }
+  }
+
+  async close() {
+    this.stopResident();
+    await super.close();
   }
 }
