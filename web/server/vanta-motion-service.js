@@ -154,7 +154,7 @@ export class VantaMotionService extends XaiService {
     this.residentDir = path.join(this.videoDir, ".vanta-motion-resident");
     this.resident = null;
     this.residentLog = "";
-    this.prewarmPromise = null;
+    this.residentReady = false;
   }
 
   async init() {
@@ -162,9 +162,9 @@ export class VantaMotionService extends XaiService {
     await mkdir(this.residentDir, { recursive: true });
     for (const file of await residentMp4s(this.residentDir))
       await rm(file.file, { force: true }).catch(() => {});
-    // Warm in the background while the browser UI is opening. First launch still
-    // pays model load once; later generations reuse the same loaded process.
-    this.prewarmPromise = this.prewarmResident().catch(() => null);
+    // Start loading the resident motion stack immediately while the browser opens.
+    // The worker eagerly loads DiT/T5/VAE into memory; it does not create a dummy video.
+    this.startResident();
   }
 
   stopResident() {
@@ -176,10 +176,22 @@ export class VantaMotionService extends XaiService {
   startResident() {
     if (this.resident && !this.resident.killed) return this.resident;
 
-    const bootstrap =
-      "import sys,runpy; sys.modules['prompt_toolkit']=None; " +
-      "script=sys.argv[1]; sys.argv=[script]+sys.argv[2:]; " +
-      "runpy.run_path(script,run_name='__main__')";
+    const bootstrap = [
+      "import sys",
+      "sys.modules['prompt_toolkit']=None",
+      "script=sys.argv[1]",
+      "args=sys.argv[2:]",
+      "src=open(script,'r',encoding='utf-8').read()",
+      "old=\"    text_encoder = None\\n    vae = None\\n    models = None\\n    clip = None\"",
+      "new=\"    logger.info('VANTA resident: eager loading text encoder / VAE / DiT')\\n    text_encoder = load_text_encoder(args, cfg, device)\\n    text_encoder.model.to('cpu')\\n    vae = load_vae(args, cfg, device, vae_dtype)\\n    vae.to_device('cpu')\\n    models = load_dit_models(args, cfg, device, dit_dtype, dit_weight_dtype, is_i2v)\\n    clip = None\"",
+      "src=src.replace(old,new)",
+      "old2=\"                # Move model to CPU after generation\\n                for model in models:\\n                    if model is not None:  # not lazy loading\\n                        model.to('cpu')\"",
+      "new2=\"                # VANTA resident mode: keep DiT on GPU between generations\\n                pass\"",
+      "src=src.replace(old2,new2)",
+      "sys.argv=[script]+args",
+      "ns={'__name__':'__main__','__file__':script}",
+      "exec(compile(src,script,'exec'),ns,ns)",
+    ].join("; ");
 
     const args = [
       "-u", "-c", bootstrap, this.script,
@@ -217,21 +229,40 @@ export class VantaMotionService extends XaiService {
     this.resident = child;
     this.residentLog = "";
     const keepLog = chunk => {
-      this.residentLog = (this.residentLog + chunk.toString()).slice(-64_000);
+      const text = chunk.toString();
+      this.residentLog = (this.residentLog + text).slice(-64_000);
+      if (
+        text.includes("Interactive mode.") ||
+        text.includes("VANTA resident: eager loading")
+      ) {
+        // "Interactive mode" means all eager startup loads completed.
+        if (text.includes("Interactive mode.")) this.residentReady = true;
+      }
     };
     child.stdout.on("data", keepLog);
     child.stderr.on("data", keepLog);
     child.on("close", () => {
       if (this.resident === child) this.resident = null;
+      this.residentReady = false;
     });
     child.on("error", () => {
       if (this.resident === child) this.resident = null;
+      this.residentReady = false;
     });
     return child;
   }
 
   async residentGenerate({ prompt, width, height, frames, steps, seed, signal, timeoutMs = 2_700_000 }) {
     const child = this.startResident();
+    const readyStart = Date.now();
+    while (!this.residentReady) {
+      if (signal?.aborted) throw new RenderError("Generation cancelled.", 499);
+      if (!this.resident || this.resident.killed)
+        throw new Error("resident process exited during model load");
+      if (Date.now() - readyStart > 900_000)
+        throw new Error("resident model load timed out");
+      await sleep(250);
+    }
     const existing = new Set((await residentMp4s(this.residentDir)).map(item => item.file));
     const started = Date.now();
 
@@ -280,25 +311,6 @@ export class VantaMotionService extends XaiService {
       throw new Error("resident generation timed out");
     } finally {
       signal?.removeEventListener("abort", abort);
-    }
-  }
-
-  async prewarmResident() {
-    if (!this.configured || this.closed) return;
-    try {
-      const file = await this.residentGenerate({
-        prompt: "subtle abstract camera motion",
-        width: 320,
-        height: 320,
-        frames: 17,
-        steps: 1,
-        seed: 1,
-        signal: null,
-        timeoutMs: 900_000,
-      });
-      await rm(file, { force: true }).catch(() => {});
-    } catch {
-      this.stopResident();
     }
   }
 
@@ -353,6 +365,7 @@ export class VantaMotionService extends XaiService {
 
       const seed = Math.floor(Math.random() * 2147483647);
       let rendered = null;
+      job.progress = 12;
 
       // Prefer the resident worker for Turbo. Balanced/Quality use one-shot
       // because the upstream interactive prompt format cannot override FPS.
