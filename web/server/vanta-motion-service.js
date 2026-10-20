@@ -88,18 +88,21 @@ async function probe(ffprobePath, file, signal) {
 const SPEED_PROFILES = {
   turbo: {
     steps: 6,
-    landscape: { height: 360, width: 640 },
-    portrait: { height: 640, width: 360 },
-    square: { height: 384, width: 384 },
+    fps: 8,
+    landscape: { height: 320, width: 576 },
+    portrait: { height: 576, width: 320 },
+    square: { height: 320, width: 320 },
   },
   balanced: {
     steps: 8,
-    landscape: { height: 416, width: 736 },
-    portrait: { height: 736, width: 416 },
-    square: { height: 416, width: 416 },
+    fps: 12,
+    landscape: { height: 384, width: 672 },
+    portrait: { height: 672, width: 384 },
+    square: { height: 384, width: 384 },
   },
   quality: {
     steps: 12,
+    fps: 16,
     landscape: { height: 480, width: 832 },
     portrait: { height: 832, width: 480 },
     square: { height: 480, width: 480 },
@@ -110,6 +113,7 @@ function renderProfile(format, speedMode = "turbo") {
   const profile = SPEED_PROFILES[speedMode] || SPEED_PROFILES.turbo;
   return {
     steps: profile.steps,
+    fps: profile.fps,
     ...(profile[format] || profile.landscape),
   };
 }
@@ -182,10 +186,10 @@ export class VantaMotionService extends XaiService {
       "--task", "t2v-1.3B",
       "--fp8",
       "--fp8_t5",
-      "--video_size", "360", "640",
-      "--video_length", "17",
+      "--video_size", "320", "576",
+      "--video_length", "9",
       "--infer_steps", "6",
-      "--fps", "16",
+      "--fps", "8",
       "--prompt", "vanta resident startup",
       "--dit", this.dit,
       "--vae", this.vae,
@@ -324,6 +328,7 @@ export class VantaMotionService extends XaiService {
     job.model = "VANTA Motion Core · " + String(job.speedMode || "turbo").toUpperCase();
     job.sourceResolution = size.width + "x" + size.height;
     job.inferenceSteps = size.steps;
+    job.internalFps = size.fps;
     job.outputResolution = "1080p (upscaled)";
     job.upscaled = true;
     job.canCancel = true;
@@ -342,17 +347,23 @@ export class VantaMotionService extends XaiService {
       const size = renderProfile(job.format, job.speedMode);
       const outDir = path.join(work.workDir, "wan-output");
       await mkdir(outDir, { recursive: true });
-      const fps = 16;
-      const frames = Math.max(17, Math.round(job.requestedDuration * fps) + 1);
+      const fps = size.fps;
+      const frames = Math.max(9, Math.round(job.requestedDuration * fps) + 1);
       const normalizedFrames = frames + ((4 - ((frames - 1) % 4)) % 4);
 
       const seed = Math.floor(Math.random() * 2147483647);
       let rendered = null;
 
+      // Prefer the resident worker for Turbo. Balanced/Quality use one-shot
+      // because the upstream interactive prompt format cannot override FPS.
+      const canUseResident = (job.speedMode || "turbo") === "turbo";
+
       // Prefer the resident worker. It loads the model once and reuses it across
       // generations, removing the repeated disk/model/LoRA setup cost.
       try {
-        if (this.prewarmPromise) await this.prewarmPromise;
+        if (!canUseResident) throw new Error("resident turbo only");
+        // Do not block the user's first render on a background warm-up render.
+        // If warm-up is still running, use the already-started resident process.
         const residentFile = await this.residentGenerate({
           prompt: job.prompt,
           width: size.width,
@@ -416,7 +427,8 @@ export class VantaMotionService extends XaiService {
 
       const filter = "scale=" + job.width + ":" + job.height +
         ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos," +
-        "pad=" + job.width + ":" + job.height + ":(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p";
+        "pad=" + job.width + ":" + job.height + ":(ow-iw)/2:(oh-ih)/2," +
+        "fps=24,setsar=1,format=yuv420p";
       await execute(this.ffmpegPath, [
         "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
         "-i", rendered, "-map", "0:v:0", "-an",
