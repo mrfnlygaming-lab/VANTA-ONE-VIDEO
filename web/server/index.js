@@ -6,8 +6,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
-import { XaiService } from "./xai-service.js";
-import { LocalLtxService } from "./local-ltx-service.js";
 import { LocalWanService } from "./local-wan-service.js";
 import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
@@ -26,30 +24,18 @@ export async function createApp(options = {}) {
   });
   await service.init();
   app.locals.videoService = service;
-  // Existing mocked xAI tests may explicitly inject xaiOptions; real launches default
-  // to the no-credit local LTX engine and never contact an AI cloud provider.
-  const AIService = options.xaiOptions ? XaiService : LocalLtxService;
-  const aiService = new AIService({
+  // VANTA Motion Core: one local engine, no cloud provider and no LTX.
+  const wanService = new LocalWanService({
     dataDir: options.dataDir ?? path.join(webDir, ".data"),
     ffmpegPath,
     ffprobePath,
-    ...options.xaiOptions,
   });
-  await aiService.init();
-  app.locals.aiService = aiService;
-
-  const wanService = options.xaiOptions
-    ? null
-    : new LocalWanService({
-        dataDir: options.dataDir ?? path.join(webDir, ".data"),
-        ffmpegPath,
-        ffprobePath,
-      });
-  if (wanService) await wanService.init();
+  await wanService.init();
+  app.locals.aiService = wanService;
   app.locals.wanService = wanService;
 
   const sourceFor = (id) =>
-    wanService?.get(id) ? wanService : aiService.get(id) ? aiService : service;
+    wanService.get(id) ? wanService : service.get(id) ? service : service;
   const upload = multer({
     storage: multer.diskStorage({
       destination: service.uploadDir,
@@ -79,24 +65,25 @@ export async function createApp(options = {}) {
   app.get("/api/capabilities", (_req, res) =>
     res.json({
       local: true,
-      ai: aiService.configured || Boolean(wanService?.configured),
-      referenceAi: aiService.configured,
-      xzakutMotion: Boolean(wanService?.configured),
-      aiNeedsKey: Boolean(options.xaiOptions) && !aiService.configured,
-      aiNeedsLocalModel: !aiService.configured && !wanService?.configured,
-      aiMaxImages: options.xaiOptions ? 3 : 4,
-      aiModel: options.xaiOptions ? "mock-xai" : "LTX-Video 2B local",
-      xzakutModel: wanService?.configured
-        ? "XZAKUT Motion · Wan 2.1 1.3B + trained LoRA"
+      ai: wanService.configured,
+      referenceAi: false,
+      xzakutMotion: wanService.configured,
+      vantaMotion: wanService.configured,
+      referenceCore: "training",
+      aiNeedsKey: false,
+      aiNeedsLocalModel: !wanService.configured,
+      aiMaxImages: 0,
+      aiModel: wanService.configured
+        ? "VANTA Motion Core · XZAKUT trained Wan"
         : null,
       outputResolution: "1080p",
-      aiSourceResolution: options.xaiOptions ? "720p" : "512x288 or 384x384",
+      aiSourceResolution: "480x832 / 832x480",
       aiUpscaled: true,
     }),
   );
   app.get("/api/videos", (_req, res) =>
     res.json({
-      videos: [...service.list(), ...aiService.list(), ...(wanService?.list() ?? [])].sort((a, b) =>
+      videos: [...service.list(), ...wanService.list()].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt),
       ),
     }),
@@ -121,14 +108,14 @@ export async function createApp(options = {}) {
         backgroundIndex = "0",
         keepIdentity = "true",
         keepOutfit = "true",
-        aiBackend = "ltx",
+        aiBackend = "vanta-motion",
         soundMode = "silent",
       } = req.body;
       if (!["ai", "camera"].includes(engine))
         throw new RenderError("Choose AI scene or Camera sequence.", 400);
       if (engine === "camera") release = service.reserve();
       const files = req.files || [];
-      const promptOnlyWan = engine === "ai" && aiBackend === "xzakut-wan";
+      const promptOnlyWan = engine === "ai";
       if (!files.length && !parentId && !promptOnlyWan)
         throw new RenderError(
           "Upload at least one image to generate a video.",
@@ -136,7 +123,7 @@ export async function createApp(options = {}) {
         );
       if (promptOnlyWan && files.length)
         throw new RenderError(
-          "XZAKUT Motion uses the trained Wan T2V model and is prompt-only. Remove references or switch to Reference AI (LTX).",
+          "VANTA Motion Core is prompt-only while VANTA Reference Core is being trained. Remove reference images for this render.",
           400,
         );
       if (
@@ -163,25 +150,10 @@ export async function createApp(options = {}) {
           "Choose landscape, portrait, or square format.",
           400,
         );
-      if (engine === "ai" && !["ltx", "xzakut-wan"].includes(aiBackend))
-        throw new RenderError("Choose a supported local AI engine.", 400);
-      const selectedService =
-        engine === "camera"
-          ? service
-          : aiBackend === "xzakut-wan"
-            ? wanService
-            : aiService;
-      if (!selectedService)
-        throw new RenderError("XZAKUT Motion is not available on this PC.", 503);
+      if (engine === "ai" && aiBackend !== "vanta-motion")
+        throw new RenderError("VANTA Motion Core is the only AI engine enabled.", 400);
+      const selectedService = engine === "camera" ? service : wanService;
       const parsedBackgroundIndex = Number(backgroundIndex);
-      if (
-        engine === "ai" &&
-        aiBackend !== "xzakut-wan" &&
-        (!Number.isInteger(parsedBackgroundIndex) ||
-          parsedBackgroundIndex < 0 ||
-          parsedBackgroundIndex >= files.length)
-      )
-        throw new RenderError("Choose a valid background reference.", 400);
       const job = await selectedService.enqueue(
         files,
         {
@@ -295,7 +267,6 @@ if (
       process.exitCode = 1;
       void Promise.all([
         app.locals.videoService.close(),
-        app.locals.aiService.close(),
         app.locals.wanService?.close(),
       ]);
       return;
@@ -306,8 +277,7 @@ if (
     server.close();
     Promise.all([
       app.locals.videoService.close(),
-      app.locals.aiService.close(),
-      app.locals.wanService?.close(),
+        app.locals.wanService?.close(),
     ]).then(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);
