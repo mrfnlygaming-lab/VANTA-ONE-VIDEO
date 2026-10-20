@@ -121,8 +121,8 @@ export default function App() {
   const [checkingAi, setCheckingAi] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [backgroundIndex, setBackgroundIndex] = useState(0);
-  const [keepIdentity, setKeepIdentity] = useState(true);
-  const [keepOutfit, setKeepOutfit] = useState(true);
+  const keepIdentity = true;
+  const keepOutfit = true;
   const [soundMode, setSoundMode] = useState<SoundMode>("silent");
   const [speedMode, setSpeedMode] = useState<SpeedMode>("turbo");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
