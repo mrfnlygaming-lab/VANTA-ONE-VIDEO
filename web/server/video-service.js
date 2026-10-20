@@ -209,7 +209,7 @@ export class VideoService {
       addedDuration: duration,
       imageCount: files.length || 1,
       format,
-      ...FORMATS[format],
+      ...(parent ? { width: parent.width, height: parent.height } : FORMATS[format]),
       filename: `vanta-${id.slice(0, 8)}.mp4`,
       error: null,
       images,

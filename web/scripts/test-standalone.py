@@ -67,6 +67,7 @@ with sync_playwright() as p:
     try:
         page.goto(virtual_url,wait_until='networkidle')
         page.get_by_text('Browser renderer ready',exact=True).wait_for()
+        page.locator('#generation-engine').select_option('camera')
         results['renderer_ready'] = True
         results['initial_stored_ids'] = [v['id'] for v in stored(page)]
         page.get_by_role('button',name='No image handy? Try an example').click()
@@ -96,7 +97,7 @@ with sync_playwright() as p:
         results['ffprobe'] = probe
         assert 2.9 <= float(probe['format']['duration']) <= 3.6
         stream = probe['streams'][0]
-        assert (stream['width'], stream['height']) == (1280, 720)
+        assert (stream['width'], stream['height']) == (1920, 1080)
         assert stream['codec_name'] == ('h264' if output.suffix == '.mp4' else 'vp9') or (output.suffix == '.webm' and stream['codec_name'] == 'vp8')
         def frame_bytes(position):
             return subprocess.check_output(['ffmpeg','-hide_banner','-loglevel','error',*position,'-i',str(output),'-frames:v','1','-vf','scale=320:180,format=gray','-f','rawvideo','-'])
@@ -148,6 +149,7 @@ with sync_playwright() as p:
         page.wait_for_function('window.__vantaTracks.every(t=>t.readyState==="ended")')
         page.reload(wait_until='networkidle')
         page.get_by_text('Browser renderer ready',exact=True).wait_for()
+        page.locator('#generation-engine').select_option('camera')
         reloaded=stored(page)
         results['reload_stored_ids']=[v['id'] for v in reloaded]
         assert sorted(v['id'] for v in completed)==sorted(v['id'] for v in reloaded)
@@ -171,6 +173,7 @@ with sync_playwright() as p:
             opaque.evaluate(instrumentation)
         opaque.set_content(html,wait_until='networkidle')
         opaque.get_by_text('Browser renderer ready',exact=True).wait_for(timeout=10000)
+        opaque.locator('#generation-engine').select_option('camera')
         results['opaque_origin']=opaque.evaluate('({origin:origin,secure:isSecureContext,randomUUID:typeof crypto.randomUUID})')
         opaque.get_by_role('button',name='No image handy? Try an example').click()
         opaque.get_by_alt_text('Your starting frame',exact=True).wait_for()

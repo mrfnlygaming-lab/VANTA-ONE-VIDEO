@@ -42,7 +42,7 @@ type Video = {
   progress: number;
   duration: number;
   format: Format;
-  motion: Motion;
+  motion: Motion | null;
   width: number;
   height: number;
   createdAt: string;
@@ -56,6 +56,10 @@ type Video = {
   parentId?: string | null;
   addedDuration?: number;
   imageCount?: number;
+  engine?: "ai" | "camera";
+  extendable?: boolean;
+  upscaled?: boolean;
+  sourceResolution?: string;
 };
 const motions = [
   {
@@ -103,6 +107,8 @@ const formats: {
 export default function App() {
   const [page, setPage] = useState<"create" | "library">("create");
   const [files, setFiles] = useState<File[]>([]);
+  const [engine, setEngine] = useState<"ai" | "camera">("ai");
+  const [aiAvailable, setAiAvailable] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
@@ -131,7 +137,8 @@ export default function App() {
   const sourceVersion = useRef(0);
   const active =
     submitting || job?.status === "queued" || job?.status === "processing";
-  const resolvedMotion = promptMotion(prompt) || motion;
+  const resolvedMotion =
+    engine === "camera" ? promptMotion(prompt) || motion : motion;
   const selectedMotion = motions.find((item) => item.id === resolvedMotion)!;
   const completed = job?.status === "completed" && job.fileUrl;
 
@@ -145,8 +152,11 @@ export default function App() {
         .then(() => setOnline(true))
         .catch(() => setOnline(false));
     void health();
-    api<{ extension?: string; storageWarning?: string }>("/api/capabilities")
+    api<{ extension?: string; storageWarning?: string; ai?: boolean }>(
+      "/api/capabilities",
+    )
       .then((info) => {
+        setAiAvailable(info.ai === true);
         if (info.extension) setExportExtension(info.extension);
         if (info.storageWarning) setError(info.storageWarning);
       })
@@ -237,6 +247,8 @@ export default function App() {
     setError(null);
     setLoadingImage(true);
     try {
+      if (engine === "ai" && files.length + candidates.length > 3)
+        throw new Error("Choose up to 3 reference images for one AI scene.");
       const next = await validateImages(candidates, files);
       if (version === sourceVersion.current) {
         setFiles(next);
@@ -272,7 +284,12 @@ export default function App() {
   }
 
   function openExtension(video: Video) {
-    if (video.duration + 3 > MAX_TOTAL_DURATION) return;
+    if (
+      video.extendable === false ||
+      video.engine === "ai" ||
+      video.duration + 3 > MAX_TOTAL_DURATION
+    )
+      return;
     extensionVersion.current++;
     setLoadingExtension(false);
     setExtensionFiles([]);
@@ -350,13 +367,23 @@ export default function App() {
 
   async function generate() {
     if (!file || active) return;
+    if (
+      engine === "ai" &&
+      (!aiAvailable || !prompt.trim() || files.length > 3)
+    ) {
+      setError(
+        "AI scenes need the server version with XAI_API_KEY configured, 1–3 reference images, and a full scene prompt.",
+      );
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setPreviewMotion(false);
     try {
       const data = new FormData();
       files.forEach((image) => data.append("image", image));
-      data.append("prompt", prompt.trim());
+      data.append("prompt", engine === "ai" ? prompt : prompt.trim());
+      data.append("engine", engine);
       data.append("motion", motion);
       data.append("format", format);
       data.append("duration", String(duration));
@@ -380,7 +407,7 @@ export default function App() {
       extensionFiles.forEach((image) => data.append("image", image));
       data.append("parentId", extensionTarget.id);
       data.append("prompt", extensionPrompt.trim());
-      data.append("motion", extensionTarget.motion);
+      data.append("motion", extensionTarget.motion ?? "zoom-in");
       data.append("format", extensionTarget.format);
       data.append("duration", String(extensionDuration));
       const next = await api<Video>("/api/videos", {
@@ -388,6 +415,7 @@ export default function App() {
         body: data,
       });
       setFormat(extensionTarget.format);
+      setEngine("camera");
       setJob(next);
       setPage("create");
       setExtensionTarget(null);
@@ -515,9 +543,12 @@ export default function App() {
                     <span /> THE MOTION STUDIO
                   </div>
                   <h1>
-                    Give your image a little life<span>.</span>
+                    Give your scene a little life<span>.</span>
                   </h1>
-                  <p>Start with a still. Create a scene worth watching.</p>
+                  <p>
+                    Combine your references. Describe the action. Create one
+                    scene.
+                  </p>
                 </div>
                 <span className="version-tag">
                   <Sparkles size={13} /> Image to video
@@ -525,14 +556,51 @@ export default function App() {
               </div>
               <div className="studio-grid">
                 <section className="settings-panel" aria-label="Video settings">
+                  <label className="field-label" htmlFor="generation-engine">
+                    Generation mode
+                  </label>
+                  <select
+                    id="generation-engine"
+                    className="engine-select"
+                    value={engine}
+                    disabled={!!active}
+                    onChange={(event) => {
+                      setEngine(event.target.value as "ai" | "camera");
+                      setJob(null);
+                      setPreviewMotion(false);
+                    }}
+                  >
+                    <option value="ai">
+                      AI scene · all references together
+                    </option>
+                    <option value="camera">
+                      Camera sequence · pan and zoom
+                    </option>
+                  </select>
+                  <p className="prompt-explanation">
+                    {engine === "ai"
+                      ? "Generate subject movement in one coherent scene from up to three references and your complete prompt."
+                      : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
+                  </p>
+                  {engine === "ai" && !aiAvailable && (
+                    <div className="ai-setup-message" role="status">
+                      {runtime.standalone
+                        ? "AI scenes need the server version with an xAI API key. This offline file can export camera sequences at 1080p; select Camera sequence to use it without a server."
+                        : "AI scenes are waiting for XAI_API_KEY in Environment settings. Save the key securely there, then restart the server. Uses your xAI account credits."}
+                    </div>
+                  )}
+                  <div className="section-divider" />
                   <div className="section-title">
                     <h2>
-                      <span className="step">01</span> Your images
+                      <span className="step">01</span>{" "}
+                      {engine === "ai" ? "Scene references" : "Your images"}
                     </h2>
                     <span className="small-label">JPG, PNG, WEBP</span>
                   </div>
                   <ImageSelector
                     files={files}
+                    maxImages={engine === "ai" ? 3 : 6}
+                    references={engine === "ai"}
                     onAdd={selectFiles}
                     onChange={(next) => {
                       sourceVersion.current++;
@@ -545,7 +613,11 @@ export default function App() {
                   />
                   <button
                     className="example-button"
-                    disabled={active || loadingImage || files.length >= 6}
+                    disabled={
+                      active ||
+                      loadingImage ||
+                      files.length >= (engine === "ai" ? 3 : 6)
+                    }
                     onClick={useExample}
                   >
                     <img src={runtime.exampleImage} alt="" />
@@ -559,10 +631,14 @@ export default function App() {
                     <h2>
                       <span className="step">02</span> Your prompt
                     </h2>
-                    <span className="small-label">OPTIONAL</span>
+                    <span className="small-label">
+                      {engine === "ai" ? "REQUIRED" : "OPTIONAL"}
+                    </span>
                   </div>
                   <label className="field-label" htmlFor="video-prompt">
-                    Prompt / camera direction
+                    {engine === "ai"
+                      ? "Full scene prompt"
+                      : "Prompt / camera direction"}
                   </label>
                   <textarea
                     id="video-prompt"
@@ -576,15 +652,30 @@ export default function App() {
                       setJob(null);
                       setPreviewMotion(false);
                     }}
-                    placeholder="Slowly pan left across the landscape…"
+                    placeholder={
+                      engine === "ai"
+                        ? "Put <IMAGE_0> and <IMAGE_1> together in one scene. They walk side by side, with natural body movement and a continuous camera shot…"
+                        : "Slowly pan left across the landscape…"
+                    }
                   />
                   <div className="prompt-examples">
-                    {["Zoom in", "Pan left", "Pan right"].map((text) => (
+                    {(engine === "ai"
+                      ? [
+                          "Natural movement",
+                          "One continuous shot",
+                          "Cinematic lighting",
+                        ]
+                      : ["Zoom in", "Pan left", "Pan right"]
+                    ).map((text) => (
                       <button
                         key={text}
                         disabled={!!active}
                         onClick={() => {
-                          setPrompt(text);
+                          setPrompt(
+                            engine === "ai"
+                              ? `${prompt}${prompt ? ", " : ""}${text.toLowerCase()}`
+                              : text,
+                          );
                           setJob(null);
                         }}
                       >
@@ -592,11 +683,28 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {engine === "ai" && files.length > 0 && (
+                    <div className="prompt-examples reference-tokens">
+                      {files.map((_, index) => (
+                        <button
+                          key={index}
+                          disabled={!!active}
+                          onClick={() =>
+                            setPrompt(
+                              (value) =>
+                                `${value}${value ? " " : ""}<IMAGE_${index}>`,
+                            )
+                          }
+                        >
+                          Insert Image {index + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <p className="prompt-explanation">
-                    {promptMotion(prompt)
-                      ? `Camera direction: ${selectedMotion.title}.`
-                      : "Camera words control movement; other details are saved as notes."}{" "}
-                    This mode does not generate AI subject motion.
+                    {engine === "ai"
+                      ? "Your entire prompt is sent to Grok unchanged with all reference images in one request. Describe the actions and how the subjects interact. Image references do not play as separate shots."
+                      : `${promptMotion(prompt) ? `Camera direction: ${selectedMotion.title}.` : "Camera words control movement; other details are saved as notes."} This mode does not generate AI subject motion.`}
                   </p>
                   <div className="section-divider" />
                   <div className="section-title">
@@ -605,36 +713,40 @@ export default function App() {
                     </h2>
                     <SlidersHorizontal size={15} className="muted" />
                   </div>
-                  <label className="field-label" htmlFor="motion">
-                    Camera movement
-                  </label>
-                  <div className="motion-select">
-                    <span className="motion-icon">
-                      <selectedMotion.icon size={19} />
-                    </span>
-                    <div>
-                      <strong>{selectedMotion.title}</strong>
-                      <span>{selectedMotion.description}</span>
-                    </div>
-                    <ChevronDown size={15} />
-                    <select
-                      id="motion"
-                      value={resolvedMotion}
-                      disabled={active}
-                      onChange={(event) => {
-                        setMotion(event.target.value as Motion);
-                        if (promptMotion(prompt)) setPrompt("");
-                        setJob(null);
-                        setPreviewMotion(false);
-                      }}
-                    >
-                      {motions.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {engine === "camera" && (
+                    <>
+                      <label className="field-label" htmlFor="motion">
+                        Camera movement
+                      </label>
+                      <div className="motion-select">
+                        <span className="motion-icon">
+                          <selectedMotion.icon size={19} />
+                        </span>
+                        <div>
+                          <strong>{selectedMotion.title}</strong>
+                          <span>{selectedMotion.description}</span>
+                        </div>
+                        <ChevronDown size={15} />
+                        <select
+                          id="motion"
+                          value={resolvedMotion}
+                          disabled={active}
+                          onChange={(event) => {
+                            setMotion(event.target.value as Motion);
+                            if (promptMotion(prompt)) setPrompt("");
+                            setJob(null);
+                            setPreviewMotion(false);
+                          }}
+                        >
+                          {motions.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
                   <div className="field-row">
                     <div>
                       <span className="field-label">Total clip duration</span>
@@ -658,7 +770,7 @@ export default function App() {
                       <span className="field-label">Resolution</span>
                       <div className="resolution-value">
                         <Monitor size={15} />
-                        720p<span>HD</span>
+                        1080p<span>FHD</span>
                       </div>
                     </div>
                   </div>
@@ -687,11 +799,22 @@ export default function App() {
                   </div>
                   <div className="render-note">
                     <ShieldCheck size={15} />
-                    <span>No credits. No API key. Just your creativity.</span>
+                    <span>
+                      {engine === "ai"
+                        ? "Uses xAI credits · Images and prompts sent to xAI"
+                        : "No credits. No API key. Camera animation only."}
+                    </span>
                   </div>
                   <button
                     className="generate-button"
-                    disabled={!file || active || loadingImage || !online}
+                    disabled={
+                      !file ||
+                      active ||
+                      loadingImage ||
+                      !online ||
+                      (engine === "ai" &&
+                        (!aiAvailable || !prompt.trim() || files.length > 3))
+                    }
                     onClick={generate}
                   >
                     {active ? (
@@ -708,13 +831,16 @@ export default function App() {
                           ? job?.status === "queued"
                             ? "Waiting to render…"
                             : "Creating your video…"
-                          : "Generate video"}
+                          : engine === "ai"
+                            ? "Generate AI scene"
+                            : "Generate video"}
                     </span>
                     {!active && <ArrowRight size={18} />}
                   </button>
                   <p className="settings-footnote">
-                    Camera animation · 24 fps · {exportExtension.toUpperCase()}{" "}
-                    export
+                    {engine === "ai"
+                      ? "AI reference scenes: 720p generation → 1080p upscale"
+                      : `Camera animation · 24 fps · 1080p ${exportExtension.toUpperCase()} export`}
                   </p>
                 </section>
 
@@ -788,17 +914,27 @@ export default function App() {
                             ? runtime.standalone
                               ? "Opening your starting frame"
                               : "Uploading your starting frame"
-                            : `${Math.round(job?.progress || 0)}% rendered`}
+                            : job?.engine === "ai"
+                              ? "Generating subject movement with xAI, then exporting 1080p. This may take several minutes."
+                              : `${Math.round(job?.progress || 0)}% rendered`}
                         </p>
                         <div className="progress-track">
                           <span style={{ width: `${job?.progress || 0}%` }} />
                         </div>
+                        {job?.engine === "ai" && (
+                          <p className="ai-cancel-note">
+                            xAI does not cancel submitted jobs. Stopping here
+                            does not stop the remote job or billing.
+                          </p>
+                        )}
                         {job && (
                           <button
                             className="text-button"
                             onClick={() => removeVideo(job)}
                           >
-                            Cancel rendering
+                            {job.engine === "ai"
+                              ? "Stop waiting and remove"
+                              : "Cancel rendering"}
                           </button>
                         )}
                       </div>
@@ -813,18 +949,23 @@ export default function App() {
                         {formats.find((item) => item.id === format)?.ratio}
                       </span>
                       <span className="toolbar-separator" />
-                      <span>HD 720p</span>
+                      <span>
+                        {completed ? Math.min(job.width, job.height) : 1080}p
+                        {job?.upscaled ? " (upscaled)" : ""}
+                      </span>
                     </div>
                     {completed ? (
                       <div className="preview-actions">
-                        {job.duration + 3 <= MAX_TOTAL_DURATION && (
-                          <button
-                            className="extend-button"
-                            onClick={() => openExtension(job)}
-                          >
-                            <Plus size={15} /> Extend video
-                          </button>
-                        )}
+                        {job.extendable !== false &&
+                          job.engine !== "ai" &&
+                          job.duration + 3 <= MAX_TOTAL_DURATION && (
+                            <button
+                              className="extend-button"
+                              onClick={() => openExtension(job)}
+                            >
+                              <Plus size={15} /> Extend video
+                            </button>
+                          )}
                         <a
                           className="download-button"
                           href={job.fileUrl!}
@@ -839,7 +980,7 @@ export default function App() {
                     ) : (
                       <button
                         className="preview-motion-button"
-                        disabled={!file || active}
+                        disabled={!file || active || engine === "ai"}
                         onClick={() => setPreviewMotion((value) => !value)}
                       >
                         <ArrowLeftRight size={15} />
@@ -855,12 +996,16 @@ export default function App() {
                       <h3>
                         {completed
                           ? "Your moment, in motion."
-                          : "Small movement. A whole new feeling."}
+                          : engine === "ai"
+                            ? "Two references. One moving scene."
+                            : "Small movement. A whole new feeling."}
                       </h3>
                       <p>
                         {completed
                           ? `Your ${(job?.extension || "mp4").toUpperCase()} is ready in My videos. Download it and make it yours.`
-                          : "Add a cinematic pan or zoom to your photo. Your image stays the star — no AI subject animation or invented frames."}
+                          : engine === "ai"
+                            ? "Grok receives every reference together and follows the complete scene prompt. The model creates new motion; reference mode renders at 720p, then the server exports an explicitly upscaled 1080p video."
+                            : "Add a cinematic pan or zoom to your photo. Your image stays the star — no AI subject animation or invented frames."}
                       </p>
                     </div>
                   </div>
@@ -937,16 +1082,18 @@ export default function App() {
                         >
                           <ArrowDownToLine size={17} />
                         </a>
-                        {video.duration + 3 <= MAX_TOTAL_DURATION && (
-                          <button
-                            className="icon-button"
-                            aria-label="Extend saved video"
-                            disabled={!!active}
-                            onClick={() => openExtension(video)}
-                          >
-                            <Plus size={17} />
-                          </button>
-                        )}
+                        {video.extendable !== false &&
+                          video.engine !== "ai" &&
+                          video.duration + 3 <= MAX_TOTAL_DURATION && (
+                            <button
+                              className="icon-button"
+                              aria-label="Extend saved video"
+                              disabled={!!active}
+                              onClick={() => openExtension(video)}
+                            >
+                              <Plus size={17} />
+                            </button>
+                          )}
                         <button
                           className="icon-button danger"
                           aria-label="Delete video"
@@ -990,7 +1137,9 @@ export default function App() {
               <ShieldCheck size={12} />{" "}
               {runtime.standalone
                 ? "Your videos stay in this browser. Download to keep."
-                : "Your 50 most recent videos stay on this server"}
+                : engine === "ai"
+                  ? "AI scenes send your images and prompt to xAI."
+                  : "Your camera videos stay on this server."}
             </span>
           </footer>
         </main>
@@ -1138,22 +1287,24 @@ export default function App() {
             <h2 id="help-title">From still to scene.</h2>
             <p>
               {runtime.standalone
-                ? "Choose a JPG, PNG, or WebP image, select a camera movement, and create a video directly in your browser. No server or installation is needed. MP4 is preferred; browsers without MP4 recording use WebM."
-                : "Upload a JPG, PNG, or WebP image, choose a camera movement, and generate a real H.264 MP4. Rendering happens on this app’s server using FFmpeg."}
+                ? "Select Camera sequence to animate one to six JPG, PNG, or WebP images in your browser. MP4 is preferred; browsers without MP4 recording use WebM. Real AI subject movement requires the server version and an xAI key."
+                : "Select AI scene to combine one to three reference images with your complete scene prompt using Grok. Configure XAI_API_KEY on the server first. Camera sequence animates one to six images with FFmpeg and supports extensions."}
             </p>
             <div className="help-detail">
               <Clock3 size={19} />
               <p>
-                Pick 3, 5, or 10 seconds at 24 fps. Landscape and portrait use a
-                720-pixel short edge; square exports at 720 × 720.
+                Pick 3, 5, or 10 seconds. Landscape and portrait exports use a
+                1080-pixel short edge; square uses 1080 × 1080. Grok reference
+                scenes are generated at 720p and upscaled to 1080p.
               </p>
             </div>
             <div className="help-detail">
               <ShieldCheck size={19} />
               <p>
-                No API keys or external AI service. This creates cinematic
-                pan-and-zoom motion, rather than new movement within your
-                subjects. Videos are silent.
+                AI scenes send your images and prompt to xAI and use your xAI
+                credits. Camera sequence needs no API key and creates silent
+                pan-and-zoom video. Stopping an AI wait does not cancel the
+                provider’s generation or its charges.
               </p>
             </div>
             <p className="muted">

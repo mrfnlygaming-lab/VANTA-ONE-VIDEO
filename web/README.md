@@ -1,48 +1,57 @@
 # VANTA Motion Studio
 
-A browser-based image-to-video studio. Arrange up to six photos, add a camera
-prompt, select duration and aspect ratio, then preview and download the video.
-After generation, an extension popup can append another scene to the result.
+A browser image-to-video studio with two generation modes:
 
-## Open without a server
+- **AI scene:** send one to three reference images together and the entire scene
+  prompt to Grok, generating subject movement in one scene. Requires the server
+  version, an xAI API key, and xAI credits.
+- **Camera sequence:** animate one to six photos in playback order using pan and
+  zoom, with no API key. Exports at 1080p and supports appended extensions.
 
-Build the project with `npm run build`, then open **dist/VANTA-OPEN.html**
-directly in a current Chrome or Edge browser. This standalone app contains its
-styles, interface, example image, and video renderer in one file. It works
-without Node.js, FFmpeg, a web server, network access, or the environment's preview
-panel on the computer where you open it. Node/npm are needed only to build it.
+## AI scenes with Grok
 
-Choose up to six images or **Try an example**, pick a duration, and select **Generate video**.
-Keep the tab visible while it records, then select **Download**. The browser
-prefers MP4/H.264 recording and uses WebM where MP4 recording is unavailable.
-The actual format appears in the app and its download extension.
-Recording happens in real time, targeting 24 fps; actual frame timing depends on
-browser performance. The app stops with an actionable message if the tab is hidden.
+Run the server version below. Set `XAI_API_KEY` securely in your environment's
+secret settings, allow HTTPS to `api.x.ai` and `vidgen.x.ai`, then restart the
+server. Never put the key in frontend code, the downloaded HTML, or chat. The
+cloud configuration draft includes this secret requirement and these domains;
+saving a draft does not apply runtime settings or publish an environment.
 
-The standalone app's **My videos** uses browser storage. Storage may be disabled
-in private browsing or limited for local files; the app shows a warning and keeps
-the current result downloadable when persistence fails. Download any videos you
-want to keep before clearing browser data. This browser library is separate from
-the server-backed app's library below.
+1. Choose **AI scene · all references together**.
+2. Add one to three JPG, PNG, or WebP reference images. Two images describe a
+   single scene; they are not played as successive stills.
+3. Describe the complete action, interaction, setting, lighting, and camera
+   movement. Use `<IMAGE_0>`, `<IMAGE_1>`, and `<IMAGE_2>` to identify references.
+   For example: “The person in <IMAGE_0> walks toward the dog in <IMAGE_1>,
+   kneels, and gently pets it. One continuous shot in warm afternoon light.”
+4. Choose 3, 5, or 10 seconds and an aspect ratio, then **Generate AI scene**.
+5. Wait for the provider and download the resulting H.264 MP4.
 
-To rebuild only the standalone file, use `npm run build:standalone` after
-dependencies have been installed. This does not require starting a service.
-For a downloadable ZIP with opening instructions, run
-`python3 scripts/package-standalone.py` after building (Python 3 is needed for
-packaging only). Extract `dist/VANTA-MOTION-STUDIO.zip` and open the HTML file.
+The app sends the full prompt unchanged, including line breaks, with all images
+in one `reference_images` request to `grok-imagine-video-1.5`. Prompt adherence
+and the resulting motion depend on the model and are not guaranteed. There is
+no camera-animation fallback if the provider fails. AI scene extension is not
+implemented; the extension popup is available for Camera sequence videos.
 
-This version creates **pan-and-zoom camera animation**. It does not generate new
-subject movement with an AI model. No API key, paid credits, or model downloads
-are required. The original iPhone app and MOVD research integration remain in
-the repository as separate projects.
+**Resolution:** xAI reference-to-video supports a native 720p source. The server
+upscales that video to 1920 × 1080 landscape, 1080 × 1920 portrait, or 1080 × 1080
+square. The interface marks it **1080p (upscaled)**. This does not create native
+1080p model detail. Provider audio, if present, is retained.
 
-## Run the server-backed version
+AI generation sends your images and prompt to xAI and consumes your xAI credits.
+Stopping the local wait does not cancel the provider's job or its charges. The
+API key stays on the server; it is sent only to the official API, never to the
+video CDN. See [AI-RESEARCH.md](AI-RESEARCH.md) for verified official sources.
 
-Requirements: Node.js 22 or newer, npm, and FFmpeg/ffprobe with the `libx264`
-encoder on the server. The cloud environment already supplies these tools.
-On Debian/Ubuntu, FFmpeg can be installed with `apt-get install ffmpeg`.
+The integration is tested with a mocked provider and actual FFmpeg conversions.
+A live paid generation has not been verified in this environment because
+`XAI_API_KEY` is not configured.
 
-From this directory (`/workspace/VANTA-ONE-VIDEO/web` in the cloud environment):
+## Run the server version
+
+Requirements: **Node.js 24**, npm, and FFmpeg/ffprobe with `libx264`. The cloud
+machine supplies them. On Debian/Ubuntu, install FFmpeg with `apt-get install ffmpeg`.
+
+From this directory (`/workspace/VANTA-ONE-VIDEO/web`):
 
 ```sh
 npm ci --cache /tmp/vanta-npm-cache
@@ -50,90 +59,99 @@ npm run build
 npm start
 ```
 
-The server listens on port **3001** on all interfaces and serves both the built
-client and API. `PORT` can override the port. For development, `npm run dev`
-runs Vite on port **5173** and the API on **3001**, with API requests proxied
-by Vite. Keep both processes running while developing.
+The server binds all interfaces on port **3001**, serving the client and API.
+`PORT` overrides the port. `npm start` enables Node's environment proxy and system
+CA support for the cloud's HTTPS proxy and secret bindings. `npm run dev` starts
+Vite on **5173** and the API on **3001**. Live processes need restarting in a new
+task. This onboarding screen does not expose a live web preview; publishing the
+environment does not publish a website.
 
-## Use
+The original Swift iPhone/MOVD research project is separate and is not required
+for this browser workflow.
 
-1. Select one to six JPG, PNG, or WebP images, or choose **Try an example**.
-2. Use the thumbnail arrows to arrange the playback order; remove or add images
-   as needed. Images share the selected total clip duration evenly.
-3. Add an optional **Prompt / camera direction**, such as “slowly pan left” or
-   “zoom out.” Recognized camera words select the move; other text stays as a
-   saved scene note. The first recognized move is used when several are present.
-   Selecting a different camera move clears a recognized prompt override.
-4. Select 3, 5, or 10 seconds total and landscape, portrait, or square format.
-5. Select **Generate video**. The completion popup offers **Generate extension**
-   or **Not now**. You can also download the completed video from the popup.
-6. To extend, add a new prompt and optionally one to six new images. With no new
-   images, the added scene starts from the parent video's final frame. Select
-   another 3, 5, or 10 seconds. The new download contains the original footage
-   followed by the added scene; the original remains in **My videos**.
-7. Extensions can be repeated up to 60 seconds total. Reopen the extension popup
-   using **Extend video** or the plus button on a saved video.
+## Open the camera app without a server
 
-The prompt field directs supported camera motion; it does not synthesize new AI
-subject movement. This applies to both the server and standalone versions.
+Download the ZIP in [downloads](../downloads/README.md), extract it, and open
+**VANTA-OPEN.html** in a current Chrome or Edge browser. To rebuild, run
+`npm run build` followed by `python3 scripts/package-standalone.py`.
 
-Landscape exports at 1280 × 720, portrait at 720 × 1280, and square at 720 × 720.
-Videos are silent at 24 fps. Images fill the selected aspect ratio using a
-center crop; camera movement crops slightly farther into the image. Transparent
-pixels are composited over black. The instant motion preview is an approximation;
-the exported MP4 is the final result.
+**Select Camera sequence** in the generation mode selector. The offline HTML
+cannot call Grok or create AI subject movement; its AI mode explains that the
+server and key are required. The camera renderer, styles, and example image are
+all embedded, so camera mode needs no server, account, key, or internet access.
+
+1. Add one to six images or choose **Try an example**. Reorder the thumbnails.
+2. Enter an optional camera prompt, such as “pan left” or “zoom out.” Recognized
+   camera words select the move; other details are saved as notes. The first
+   recognized move wins if several are present.
+3. Choose 3, 5, or 10 seconds total and landscape, portrait, or square format.
+4. Select **Generate video** and keep the tab visible while it records.
+5. The completion popup offers **Generate extension**, **Not now**, and download.
+   Extensions append 3, 5, or 10 seconds using new images or the parent's final
+   frame. The original remains available. Repeat up to 60 seconds total.
+
+Camera output is silent, targets 24 fps, and uses 1920 × 1080 landscape,
+1080 × 1920 portrait, or 1080 × 1080 square. Images share the duration evenly,
+fill the frame with a center crop, and use black behind transparent pixels.
+Extensions of older 720p videos keep the parent's dimensions.
+
+The browser prefers MP4/H.264 and uses WebM if unavailable. Recording timing
+varies with device performance. Browser storage can be disabled or cleared;
+download results you want to keep. The server and browser libraries are separate.
+Some managed browsers block local HTML by policy; leave their policies unchanged.
 
 ## Storage and operation
 
-Original uploads are removed after rendering or cancellation. Completed MP4s and
-their metadata are saved in ignored `.data/videos/`, restored at server startup,
-and limited to the **50 most recent videos**. Older exports are automatically
-removed. Deleting a video removes its server files. Download exports you want to
-keep before removing this directory or the app.
+Server camera exports live in ignored `.data/videos/`; AI exports in
+`.data/ai-videos/`. Each service retains its latest 50 completed videos and restores
+them at startup. Uploaded reference files are removed after processing or local
+cancellation. Deleting an AI job cannot undo a request already sent to xAI.
+Download videos before deleting the data directory or clearing browser storage.
 
-This is a personal workspace app: it has no user accounts or per-user isolation.
-Anyone with access to its server can see or remove its saved videos. Add
-authentication before sharing it as a public multi-user service.
+This is a personal workspace without authentication or per-user isolation.
+Anyone with server access can use configured xAI credits and see or delete
+videos. Add authentication before deploying a public service.
 
-The backend accepts at most six images, 20 MB per image, 60 MB combined, and
-40 megapixels per image, with a maximum of 16,384 pixels per side. A single rendering worker and a bounded queue
-limit CPU and memory use. Camera presets and paths are controlled by the server.
-FFprobe validates image signatures and video output; the renderer uses restricted
-local-file protocols and bounded subprocesses. No external generation API is used.
+Camera uploads allow six images, 20 MB each and 60 MB combined, with a maximum
+of 40 megapixels and 16,384 pixels per side. AI accepts at most three references.
+Both services validate actual media bytes and bound their queues. The AI worker
+submits one provider job at a time, checks moderation, restricts downloads to the
+provider CDN, and verifies encoded output before exposing a completed video.
 
 ## Validate
 
 ```sh
 npm test
 npm run build
+python3 scripts/test-standalone.py
+python3 scripts/test-storyboard.py
+python3 scripts/test-ai-scene-ui.py
 ```
 
-The integration suite runs real FFmpeg exports and verifies image validation,
-visible motion, H.264 encoding, resolution, frame rate, duration, byte-range
-downloads, persistence, deletion, queue limits, cancellation, and transparent and
-extreme-aspect-ratio images. It needs FFmpeg/ffprobe and writes temporary files
-outside the checkout.
+The 28 Node tests exercise real FFmpeg camera exports, validation, visible motion,
+1080p dimensions, extension continuity, downloads, persistence, cleanup, queues,
+and a mocked xAI provider with real 720p-to-1080p conversion. AI tests verify two
+and three references in one request, full prompt preservation, empty HTTP 202
+polling, moderation, unsafe URLs, failures, and timeouts. They make no paid calls.
 
-For a functional browser check, generate an example video, play it, download it,
-reload My videos, then delete it. A successful health response from
-`GET /api/health` alone does not verify rendering.
-
-`python3 scripts/test-storyboard.py` checks the standalone three-image storyboard,
-prompt, completion popup, and actual extended video. It requires the environment's
-Python Playwright, Chromium, and FFmpeg tools. Managed browser policies stay unchanged;
-the exact standalone HTML is tested with an offline document route.
+The browser scripts need Python Playwright, Chromium, and FFmpeg. They use the
+production build. Standalone tests serve its exact HTML through an offline
+route; managed Chromium prevents direct file navigation. The AI UI test mocks
+the API and does not establish live model quality or prompt adherence.
 
 The GitHub Actions **Validate browser video studio** workflow installs frozen
-dependencies, runs the real integration tests, and builds the client on Linux.
+dependencies, runs Node integration tests, and builds the client on Linux.
 
 ## API
 
 | Request | Purpose |
 | --- | --- |
-| `GET /api/health` | Server status |
-| `POST /api/videos` | Multipart repeated `image` (1–6), `prompt`, `motion`, `duration`, `format`; returns a job |
-| `POST /api/videos` with `parentId` | Append a scene to a completed video; new images are optional, format is inherited |
-| `GET /api/videos/:id` | Poll job status and render progress |
+| `GET /api/health` | Local service health |
+| `GET /api/capabilities` | Whether the xAI key is configured and supported modes |
+| `POST /api/videos` | Multipart `engine=ai`, repeated `image` (1–3), full `prompt`, `duration`, `format` |
+| `POST /api/videos` | Multipart `engine=camera` (default), repeated `image` (1–6), optional camera `prompt`, `motion`, `duration`, `format` |
+| `POST /api/videos` with `parentId` | Append a camera scene; new images optional, format inherited |
+| `GET /api/videos/:id` | Poll a job |
 | `GET /api/videos` | List completed videos |
-| `GET /api/videos/:id/file` | Stream/download MP4, including byte ranges |
-| `DELETE /api/videos/:id` | Cancel rendering or remove a saved video |
+| `GET /api/videos/:id/file` | Stream/download MP4 with byte ranges |
+| `DELETE /api/videos/:id` | Stop local work or remove saved video; cannot cancel remote xAI generation |

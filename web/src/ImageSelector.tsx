@@ -68,6 +68,8 @@ export default function ImageSelector({
   disabled,
   loading,
   label = "Add images",
+  maxImages = MAX_IMAGES,
+  references = false,
 }: {
   files: File[];
   onAdd: (files: File[]) => void;
@@ -75,6 +77,8 @@ export default function ImageSelector({
   disabled: boolean;
   loading: boolean;
   label?: string;
+  maxImages?: number;
+  references?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -132,25 +136,27 @@ export default function ImageSelector({
                 >
                   <X size={13} />
                 </button>
-                <div className="reorder-images">
-                  <button
-                    disabled={blocked || index === 0}
-                    aria-label={`Move image ${index + 1} earlier`}
-                    onClick={() => reorder(index, -1)}
-                  >
-                    <ArrowLeft size={12} />
-                  </button>
-                  <button
-                    disabled={blocked || index === files.length - 1}
-                    aria-label={`Move image ${index + 1} later`}
-                    onClick={() => reorder(index, 1)}
-                  >
-                    <ArrowRight size={12} />
-                  </button>
-                </div>
+                {!references && (
+                  <div className="reorder-images">
+                    <button
+                      disabled={blocked || index === 0}
+                      aria-label={`Move image ${index + 1} earlier`}
+                      onClick={() => reorder(index, -1)}
+                    >
+                      <ArrowLeft size={12} />
+                    </button>
+                    <button
+                      disabled={blocked || index === files.length - 1}
+                      aria-label={`Move image ${index + 1} later`}
+                      onClick={() => reorder(index, 1)}
+                    >
+                      <ArrowRight size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
-            {files.length < MAX_IMAGES && (
+            {files.length < maxImages && (
               <button
                 className="add-storyboard-image"
                 disabled={blocked}
@@ -181,14 +187,21 @@ export default function ImageSelector({
             <span>
               or <em>browse files</em> to get started
             </span>
-            <small>1–6 images · 20 MB each · 60 MB combined</small>
+            <small>
+              1–{maxImages} {references ? "references" : "images"} · 20 MB each
+              · 60 MB combined
+            </small>
           </button>
         )}
       </div>
       <p className="storyboard-hint">
         {files.length
-          ? `${files.length} of ${MAX_IMAGES} images · Plays in this order · Use arrows to reorder`
-          : "Add one image or build a sequence with three or more."}
+          ? references
+            ? `${files.length} of ${maxImages} references · Combined into one AI scene`
+            : `${files.length} of ${maxImages} images · Plays in this order · Use arrows to reorder`
+          : references
+            ? "Add reference images for one coherent scene."
+            : "Add one image or build a sequence with three or more."}
       </p>
     </div>
   );

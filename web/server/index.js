@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
+import { XaiService } from "./xai-service.js";
 import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
@@ -19,6 +20,15 @@ export async function createApp(options = {}) {
   });
   await service.init();
   app.locals.videoService = service;
+  const aiService = new XaiService({
+    dataDir: options.dataDir ?? path.join(webDir, ".data"),
+    ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath } : {}),
+    ...(options.ffprobePath ? { ffprobePath: options.ffprobePath } : {}),
+    ...options.xaiOptions,
+  });
+  await aiService.init();
+  app.locals.aiService = aiService;
+  const sourceFor = (id) => (aiService.get(id) ? aiService : service);
   const upload = multer({
     storage: multer.diskStorage({
       destination: service.uploadDir,
@@ -46,9 +56,24 @@ export async function createApp(options = {}) {
     res.json({ status: "ok", mode: "local" }),
   );
   app.get("/api/capabilities", (_req, res) =>
-    res.json({ local: true, ai: false }),
+    res.json({
+      local: true,
+      ai: aiService.configured,
+      aiNeedsKey: !aiService.configured,
+      aiMaxImages: 3,
+      aiModel: "grok-imagine-video-1.5",
+      outputResolution: "1080p",
+      aiSourceResolution: "720p",
+      aiUpscaled: true,
+    }),
   );
-  app.get("/api/videos", (_req, res) => res.json({ videos: service.list() }));
+  app.get("/api/videos", (_req, res) =>
+    res.json({
+      videos: [...service.list(), ...aiService.list()].sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      ),
+    }),
+  );
 
   app.post("/api/videos", async (req, res, next) => {
     let release;
@@ -56,7 +81,6 @@ export async function createApp(options = {}) {
     const abort = () => controller.abort();
     req.once("aborted", abort);
     try {
-      release = service.reserve();
       await new Promise((resolve, reject) =>
         upload(req, res, (error) => (error ? reject(error) : resolve())),
       );
@@ -66,7 +90,11 @@ export async function createApp(options = {}) {
         format = "landscape",
         prompt = "",
         parentId = null,
+        engine = "camera",
       } = req.body;
+      if (!["ai", "camera"].includes(engine))
+        throw new RenderError("Choose AI scene or Camera sequence.", 400);
+      if (engine === "camera") release = service.reserve();
       const files = req.files || [];
       if (!files.length && !parentId)
         throw new RenderError(
@@ -97,12 +125,13 @@ export async function createApp(options = {}) {
           "Choose landscape, portrait, or square format.",
           400,
         );
-      const job = await service.enqueue(
+      const selectedService = engine === "ai" ? aiService : service;
+      const job = await selectedService.enqueue(
         files,
         { motion, duration: Number(duration), format, prompt, parentId },
         controller.signal,
       );
-      res.status(202).json(service.publicJob(job));
+      res.status(202).json(selectedService.publicJob(job));
     } catch (error) {
       await Promise.all(
         (req.files || []).map((file) =>
@@ -117,12 +146,14 @@ export async function createApp(options = {}) {
   });
 
   app.get("/api/videos/:id", (req, res, next) => {
-    const job = service.get(req.params.id);
+    const selectedService = sourceFor(req.params.id);
+    const job = selectedService.get(req.params.id);
     if (!job) return next(new RenderError("Video not found.", 404));
-    res.json(service.publicJob(job));
+    res.json(selectedService.publicJob(job));
   });
   app.get("/api/videos/:id/file", (req, res, next) => {
-    const job = service.get(req.params.id);
+    const selectedService = sourceFor(req.params.id);
+    const job = selectedService.get(req.params.id);
     if (!job) return next(new RenderError("Video not found.", 404));
     if (job.status !== "completed")
       return next(new RenderError("This video is not ready to download.", 409));
@@ -131,13 +162,17 @@ export async function createApp(options = {}) {
       "Content-Disposition": `inline; filename="${job.filename}"`,
       "Cache-Control": "private, max-age=3600",
     });
-    res.sendFile(service.filePath(job.id), { dotfiles: "allow" }, (error) => {
-      if (error && !res.headersSent) next(error);
-    });
+    res.sendFile(
+      selectedService.filePath(job.id),
+      { dotfiles: "allow" },
+      (error) => {
+        if (error && !res.headersSent) next(error);
+      },
+    );
   });
   app.delete("/api/videos/:id", async (req, res, next) => {
     try {
-      if (!(await service.delete(req.params.id)))
+      if (!(await sourceFor(req.params.id).delete(req.params.id)))
         throw new RenderError("Video not found.", 404);
       res.status(204).end();
     } catch (error) {
@@ -191,14 +226,20 @@ if (
         `Unable to start video server on port ${port}: ${error.message}`,
       );
       process.exitCode = 1;
-      void app.locals.videoService.close();
+      void Promise.all([
+        app.locals.videoService.close(),
+        app.locals.aiService.close(),
+      ]);
       return;
     }
     console.log(`Vanta video server listening on port ${port}`);
   });
   const shutdown = () => {
     server.close();
-    app.locals.videoService.close().then(() => process.exit(0));
+    Promise.all([
+      app.locals.videoService.close(),
+      app.locals.aiService.close(),
+    ]).then(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);

@@ -1,32 +1,32 @@
 VANTA MOTION STUDIO — OPEN & CREATE
 
+This ZIP contains the OFFLINE CAMERA APP. For AI subject movement and multiple
+references in one generated scene, use the server version with an xAI API key:
+https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/tree/codex/vanta-browser-studio/web
+
 1. Extract this ZIP to a folder on your computer.
 2. Open VANTA-OPEN.html in a current Chrome or Edge browser.
-   If it opens in an editor or a file preview, use Open With > Chrome or Edge.
-3. Choose one to six photos, or select "Try an example". Use arrows to reorder.
-4. Add a prompt such as "pan left" or "zoom in", and choose duration and format.
-5. Select "Generate video" and keep the tab visible while rendering.
-6. After generation, the extension popup lets you add a prompt and optional new
-   images, then append 3, 5, or 10 seconds. The original video remains available.
-7. Choose "Not now" to dismiss the popup or "Download current video" to save.
-   You can reopen it with "Extend video" and repeat up to 60 seconds total.
+   If it opens in an editor, use Open With > Chrome or Edge.
+3. Set Generation mode to "Camera sequence · pan and zoom".
+4. Choose one to six photos or "Try an example". Use arrows to reorder them.
+5. Add a camera prompt such as "pan left" and select duration and format.
+6. Select "Generate video". Keep the tab visible while rendering.
+7. The extension popup can append a prompt and optional new images. With no new
+   images, it continues from the last frame. The original stays available.
+8. Select "Not now" or "Download current video" to save. Reopen with "Extend
+   video" and repeat extensions up to 60 seconds total.
 
-No installation, server, account, hosting service, API key, or internet connection
-is required to use this HTML app. All assets and rendering code are in the file.
+Camera mode exports 1080p: 1920x1080 landscape, 1080x1920 portrait, 1080x1080 square.
+It animates photos with camera pan/zoom. It cannot create new subject movement
+or follow action descriptions. Images play sequentially in their listed order.
 
-MP4/H.264 is preferred; browsers without MP4 recording use WebM. The app shows
-the actual output format. Rendering takes approximately the video's duration.
-Browser recording timing and frame rate depend on your device's performance.
+No installation, server, account, API key, or internet is needed for CAMERA mode.
+The AI scene mode is unavailable in this HTML. The server's AI scene mode sends
+1–3 references together with the full prompt to Grok and uses your xAI credits.
+xAI reference video is natively 720p; the server labels its 1080p upscale clearly.
+Never paste an API key into this file or chat; use server secret settings.
 
-Images play in their listed order and share the chosen clip duration evenly.
-Extensions preserve the original footage and add a scene. With no new images,
-the added scene starts from the previous video's final frame.
-
-The prompt selects supported camera moves; other details are saved as notes.
-This animates your photos with camera pan or zoom. It does not synthesize subject
-movement with AI. Videos are silent. Browser storage may be cleared or disabled;
-download videos you want to keep.
-
-This is a standalone app file, not a link to the cloud environment's preview.
-Some managed browsers block local HTML files by policy. Do not change those
-policies; use a permitted browser or contact your administrator.
+MP4/H.264 is preferred; unsupported browsers use WebM. Videos are silent.
+Rendering takes approximately the video's duration; timing depends on your device.
+Browser storage may be cleared or disabled. Download videos you want to keep.
+Some managed browsers block local HTML; leave their policies unchanged.

@@ -83,8 +83,8 @@ test(
     assert.equal(accepted.status, "queued");
     const job = await completed(origin, accepted.id);
     assert.equal(job.progress, 100);
-    assert.equal(job.width, 1280);
-    assert.equal(job.height, 720);
+    assert.equal(job.width, 1920);
+    assert.equal(job.height, 1080);
     const video = await fetch(`${origin}${job.fileUrl}`);
     assert.equal(video.status, 200);
     assert.match(video.headers.get("content-type"), /video\/mp4/);
@@ -102,8 +102,8 @@ test(
     const metadata = JSON.parse(stdout);
     assert.equal(metadata.streams.length, 1);
     assert.equal(metadata.streams[0].codec_name, "h264");
-    assert.equal(metadata.streams[0].width, 1280);
-    assert.equal(metadata.streams[0].height, 720);
+    assert.equal(metadata.streams[0].width, 1920);
+    assert.equal(metadata.streams[0].height, 1080);
     assert.equal(metadata.streams[0].r_frame_rate, "24/1");
     assert.ok(Math.abs(Number(metadata.format.duration) - 3) < 0.1);
     const hashes = await exec("ffmpeg", [
@@ -181,10 +181,10 @@ test(
         filePath,
       ]);
       const result = JSON.parse(stdout);
-      assert.equal(result.streams[0].width, 720);
+      assert.equal(result.streams[0].width, 1080);
       assert.equal(
         result.streams[0].height,
-        format === "portrait" ? 1280 : 720,
+        format === "portrait" ? 1920 : 1080,
       );
       assert.ok(Math.abs(Number(result.format.duration) - 3) < 0.1);
     }

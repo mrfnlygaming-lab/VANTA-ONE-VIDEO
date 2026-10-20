@@ -41,9 +41,9 @@ type Work = {
   running?: Promise<void>;
 };
 const sizes = {
-  landscape: [1280, 720],
-  portrait: [720, 1280],
-  square: [720, 720],
+  landscape: [1920, 1080],
+  portrait: [1080, 1920],
+  square: [1080, 1080],
 } as const;
 const motions = ["zoom-in", "zoom-out", "pan-left", "pan-right", "still"];
 const jobs = new Map<string, Job>();
@@ -387,7 +387,7 @@ async function record({
     stream = canvas.captureStream(24);
     const recorder = new MediaRecorder(stream, {
       mimeType: job.mimeType,
-      videoBitsPerSecond: 4_000_000,
+      videoBitsPerSecond: job.width * job.height > 1280 * 720 ? 8_000_000 : 4_000_000,
     });
     job.mimeType = recorder.mimeType || job.mimeType;
     return await new Promise<Blob>((resolve, reject) => {
@@ -695,6 +695,7 @@ export async function browserRequest<T>(
     const form = options.body;
     if (!(form instanceof FormData))
       throw new ApiError("Upload an image and video settings.", 400);
+    if (form.get("engine") === "ai") throw new ApiError("Real AI scenes need the server version with XAI_API_KEY configured. The offline renderer cannot generate subject motion.", 503);
     const parentId = form.get("parentId") || null;
     if (parentId !== null && typeof parentId !== "string")
       throw new ApiError("Choose a completed video to extend.", 400);

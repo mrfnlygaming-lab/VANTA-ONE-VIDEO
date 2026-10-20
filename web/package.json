@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web \"node --watch server/index.js\" \"vite --host 0.0.0.0\"",
+    "dev": "concurrently -k -n api,web \"node --use-env-proxy --use-system-ca --watch server/index.js\" \"vite --host 0.0.0.0\"",
     "build": "tsc -b && vite build && npm run build:standalone",
     "build:standalone": "node scripts/build-standalone.mjs",
-    "start": "node server/index.js",
+    "start": "node --use-env-proxy --use-system-ca server/index.js",
     "test": "node --test server/test/*.test.js"
   },
   "dependencies": {

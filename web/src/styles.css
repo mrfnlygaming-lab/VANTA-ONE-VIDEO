@@ -15,6 +15,33 @@
   --line: #2a2d27;
   --panel: #191c18;
 }
+.engine-select {
+  width: 100%;
+  background: #202b18;
+  border: 1px solid #5c7149;
+  color: #e4efd9;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+}
+.ai-setup-message {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #7a6943;
+  border-radius: 6px;
+  background: #302a1c;
+  color: #e5d2a7;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.ai-cancel-note {
+  max-width: 350px;
+  font-size: 10px !important;
+  line-height: 1.7;
+}
+.reference-tokens button {
+  border-style: dashed;
+}
 .upload-area.has-storyboard {
   height: auto;
   min-height: 112px;

@@ -1,172 +1,250 @@
 #!/usr/bin/env python3
-"""Real UI/video tests for prompts, ordered images and the extension popup.
+"""Check real 1080p storyboards and cumulative extensions in Chromium.
 
-Requires Python Playwright, Chromium and FFmpeg/ffprobe. The default uses the
-exact standalone HTML at an offline routed origin. --server tests a running app.
-Managed browser policy is never changed, and file:// navigation is not claimed.
+Requires Python Playwright, Chromium, FFmpeg, and ffprobe. By default the exact
+standalone HTML is supplied through routing at an offline localhost origin. No
+server starts and no browser policy is changed. Pass --url http://localhost:3001
+to test the running server instead. Fresh browser storage isolates local tests;
+server tests preserve existing videos and delete only videos this run created.
 """
 import argparse
+import hashlib
 import json
-from pathlib import Path
 import struct
 import subprocess
+import traceback
 import zlib
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--server')
-parser.add_argument('--evidence-dir', type=Path, default=Path('/tmp/vanta-storyboard-test'))
+parser.add_argument('--html', type=Path, default=Path(__file__).resolve().parents[1] / 'dist/VANTA-OPEN.html')
+parser.add_argument('--url', help='Use a running server instead of offline standalone HTML')
+parser.add_argument('--browser', default='/usr/bin/chromium')
+parser.add_argument('--evidence-dir', type=Path, default=Path('/tmp/vanta-storyboard-smoke'))
+parser.add_argument('--skip-second-extension', action='store_true')
 args = parser.parse_args()
-evidence = args.evidence_dir
+evidence = args.evidence_dir.resolve()
 evidence.mkdir(parents=True, exist_ok=True)
-root = Path(__file__).resolve().parents[1]
-
+html = args.html.read_text() if not args.url else None
+url = args.url or 'http://localhost:47872/VANTA-OPEN.html'
+results = {'mode': 'server' if args.url else 'offline routed standalone HTML (file:// not exercised)', 'page_errors': [], 'console_errors': [], 'unexpected_http_requests': []}
+if html:
+    results['html_sha256'] = hashlib.sha256(html.encode()).hexdigest()
+created = []
 
 def png(color):
-    def chunk(kind, data):
-        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
-    pixels = (b'\0' + bytes(color) * 160) * 96
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 160, 96, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(pixels)) + chunk(b'IEND', b'')
+    def chunk(kind, body):
+        return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body) & 0xffffffff)
+    rows = (b'\x00' + bytes(color) * 640) * 360
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 640, 360, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
 
+def image_file(name, color):
+    return {'name': name + '.png', 'mimeType': 'image/png', 'buffer': png(color)}
 
-images = [dict(name=name + '.png', mimeType='image/png', buffer=png(color)) for name, color in [
-    ('red', (255, 0, 0)), ('green', (0, 255, 0)), ('blue', (0, 0, 255)), ('yellow', (255, 255, 0))]]
-results = {'mode': 'server' if args.server else 'offline standalone', 'errors': [], 'external_requests': []}
+def read_jobs(page):
+    if args.url:
+        response = page.request.get(url.rstrip('/') + '/api/videos')
+        assert response.ok
+        return response.json()['videos']
+    return page.evaluate('''() => new Promise((resolve,reject)=>{
+      const request=indexedDB.open('vanta-motion-studio',1);
+      request.onsuccess=()=>{const db=request.result;const tx=db.transaction('videos');
+        const get=tx.objectStore('videos').getAll();get.onsuccess=()=>{resolve(get.result.map(record=>record.job));db.close()};get.onerror=()=>reject(get.error)};
+      request.onerror=()=>reject(request.error)
+    })''')
 
+def sample_color(path, seconds):
+    raw = subprocess.check_output(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-ss', str(seconds), '-i', str(path), '-frames:v', '1', '-vf', 'scale=1:1,format=rgb24', '-f', 'rawvideo', '-'])
+    assert len(raw) == 3, (seconds, raw)
+    return list(raw)
 
-def check_video(filename, duration, samples):
-    probe = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries',
-        'stream=codec_name,width,height:format=duration', '-of', 'json', str(filename)], text=True))
-    assert (probe['streams'][0]['width'], probe['streams'][0]['height']) == (1280, 720), probe
-    assert abs(float(probe['format']['duration']) - duration) < 0.9, probe
-    colors = []
-    for at, channels in samples:
-        pixel = subprocess.check_output(['ffmpeg', '-v', 'error', '-ss', str(at), '-i', str(filename),
-            '-frames:v', '1', '-vf', 'scale=1:1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'])
-        assert len(pixel) == 3, (at, pixel)
-        assert all(pixel[c] > 170 if c in channels else pixel[c] < 70 for c in range(3)), (at, list(pixel), channels)
-        colors.append(list(pixel))
-    return {'duration': probe['format']['duration'], 'codec': probe['streams'][0]['codec_name'], 'sample_colors': colors}
+def assert_color(actual, expected):
+    assert all(abs(a-b) < 45 for a,b in zip(actual, expected)), (actual, expected)
 
+def inspect_video(path, nominal_duration, colors):
+    probe = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,width,height', '-show_entries', 'format=duration,size', '-of', 'json', str(path)], text=True))
+    stream = probe['streams'][0]
+    assert (stream['width'], stream['height']) == (1920, 1080), probe
+    assert nominal_duration - 0.2 <= float(probe['format']['duration']) <= nominal_duration + 1.1, probe
+    if path.suffix == '.mp4':
+        assert stream['codec_name'] == 'h264', probe
+    samples = []
+    for seconds, expected in colors:
+        actual = sample_color(path, seconds)
+        assert_color(actual, expected)
+        samples.append({'seconds': seconds, 'rgb': actual, 'expected': expected})
+    return {'ffprobe': probe, 'samples': samples}
 
-with sync_playwright() as playwright:
-    browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True, args=['--no-sandbox'])
-    context = browser.new_context(viewport={'width': 1440, 'height': 1000}, accept_downloads=True, offline=not bool(args.server))
-    if args.server:
-        url = args.server.rstrip('/')
-    else:
-        url = 'http://localhost:47872/VANTA-OPEN.html'
-        html = (root / 'dist/VANTA-OPEN.html').read_text()
-        def route(request):
-            if request.request.url == url:
-                request.fulfill(status=200, content_type='text/html', body=html)
+with sync_playwright() as p:
+    browser = p.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
+    context = browser.new_context(viewport={'width':1440,'height':1000}, accept_downloads=True, offline=not bool(args.url))
+    if html:
+        def intercept(route):
+            if route.request.url == url:
+                route.fulfill(status=200, content_type='text/html', body=html)
             else:
-                results['external_requests'].append(request.request.url)
-                request.abort()
-        context.route('http://**/*', route)
-        context.route('https://**/*', route)
+                results['unexpected_http_requests'].append(route.request.url)
+                route.abort()
+        context.route('http://**/*', intercept)
+        context.route('https://**/*', intercept)
     page = context.new_page()
-    page.on('pageerror', lambda error: results['errors'].append(str(error)))
-    initial_ids = set()
+    page.on('pageerror', lambda error: results['page_errors'].append(str(error)))
+    page.on('console', lambda message: results['console_errors'].append(message.text) if message.type == 'error' else None)
     try:
         page.goto(url, wait_until='networkidle')
-        page.get_by_text('Renderer online' if args.server else 'Browser renderer ready', exact=True).wait_for()
-        if args.server:
-            initial_ids = {item['id'] for item in page.request.get(url + '/api/videos').json()['videos']}
-        page.get_by_label('Add images', exact=True).set_input_files(images[:3])
-        page.locator('.storyboard-image').nth(2).wait_for()
+        page.get_by_text('Renderer online' if args.url else 'Browser renderer ready', exact=True).wait_for()
+        initial_ids = [job['id'] for job in read_jobs(page)]
+        results['initial_ids'] = initial_ids
+        assert page.locator('#generation-engine').input_value() == 'ai'
+        if not args.url:
+            assert page.get_by_role('button', name='Generate AI scene', exact=True).is_disabled()
+            assert 'server version' in page.locator('.ai-setup-message').inner_text()
+            page.locator('input[aria-label="Add images"]').set_input_files([image_file('reference-red',(255,0,0)),image_file('reference-blue',(0,0,255))])
+            page.wait_for_function('document.querySelectorAll(".settings-panel .storyboard-image").length===2')
+            page.get_by_label('Full scene prompt', exact=True).fill('Put both subjects into one continuous moving scene.')
+            assert page.get_by_role('button', name='Generate AI scene', exact=True).is_disabled()
+            results['standalone_ai_guard'] = True
+        page.locator('#generation-engine').select_option('camera')
+        if not args.url:
+            assert page.locator('.settings-panel .storyboard-image').count() == 2
+            results['mode_switch_preserves_images'] = True
+            page.get_by_role('button', name='Remove image 2', exact=True).click()
+            page.get_by_role('button', name='Remove image 1', exact=True).click()
+        main_input = page.locator('input[aria-label="Add images"]')
+        files = [image_file('blue',(0,0,255)), image_file('red',(255,0,0)), image_file('green',(0,255,0)), image_file('cyan',(0,255,255)), image_file('magenta',(255,0,255)), image_file('white',(255,255,255)), image_file('black',(0,0,0))]
+        main_input.set_input_files(files)
+        page.get_by_role('alert').wait_for()
+        assert 'up to 6 images' in page.get_by_role('alert').inner_text()
+        assert page.locator('.settings-panel .storyboard-image').count() == 0
+        results['seven_images_rejected'] = page.get_by_role('alert').inner_text()
+        page.get_by_role('button', name='Dismiss error', exact=True).click()
+        main_input.set_input_files(files[:6])
+        page.wait_for_function('document.querySelectorAll(".settings-panel .storyboard-image").length===6')
+        results['six_images_accepted'] = True
+        for index in [6,5,4]:
+            page.get_by_role('button', name=f'Remove image {index}', exact=True).click()
+        # B,R,G -> R,B,G -> R,G,B proves both reorder directions affect output.
+        page.get_by_role('button', name='Move image 1 later', exact=True).click()
         page.get_by_role('button', name='Move image 3 earlier', exact=True).click()
-        page.get_by_role('button', name='Move image 2 later', exact=True).click()
-        page.get_by_label('Prompt / camera direction', exact=True).fill('Pan right across the scene')
-        assert page.locator('#motion').input_value() == 'pan-right'
+        page.get_by_label('Prompt / camera direction', exact=True).fill('Pan right')
         page.get_by_role('button', name='3s', exact=True).click()
         page.get_by_role('button', name='Generate video', exact=True).click()
 
-        def completed_popup(seconds):
+        def completion():
             dialog = page.get_by_role('dialog', name='Keep the story going?', exact=True)
-            dialog.wait_for(timeout=90000)
-            assert f'Your {seconds}-second video is saved.' in dialog.inner_text()
+            dialog.wait_for(timeout=120000)
             return dialog
 
-        def download(name):
-            with page.expect_download() as info:
+        def download_current(stem, nominal_duration, colors):
+            video = page.get_by_label('Generated video', exact=True)
+            video.wait_for()
+            video.evaluate('(v)=>v.play()')
+            before = video.evaluate('(v)=>v.currentTime')
+            page.wait_for_timeout(400)
+            after = video.evaluate('(v)=>v.currentTime')
+            assert after > before, (before, after)
+            video.evaluate('(v)=>v.pause()')
+            with page.expect_download() as pending:
                 page.get_by_role('link', name='Download', exact=True).click()
-            item = info.value
-            target = evidence / (name + '.' + item.suggested_filename.rsplit('.', 1)[-1])
-            item.save_as(str(target))
-            assert item.failure() is None and target.stat().st_size > 1000
-            return target
+            downloaded = pending.value
+            output = evidence / (stem + '.' + downloaded.suggested_filename.rsplit('.',1)[-1])
+            downloaded.save_as(str(output))
+            assert downloaded.failure() is None and output.stat().st_size > 1000
+            job = next(job for job in read_jobs(page) if job['filename'] == downloaded.suggested_filename)
+            created.append(job)
+            details = {'download':str(output), 'bytes':output.stat().st_size, 'job':job, 'playback':[before,after]}
+            details.update(inspect_video(output, nominal_duration, colors))
+            return details
 
-        dialog = completed_popup(3)
-        results['auto_popup'] = True
+        dialog = completion()
+        results['completion_auto_popup'] = True
+        assert dialog.get_by_role('button', name='Close extension popup', exact=True).evaluate('(e)=>e===document.activeElement')
+        for _ in range(14):
+            page.keyboard.press('Tab')
+            assert dialog.evaluate('(e)=>e.contains(document.activeElement)')
         page.keyboard.press('Shift+Tab')
-        assert page.evaluate('document.activeElement.textContent').strip() == 'Download current video'
+        assert dialog.evaluate('(e)=>e.contains(document.activeElement)')
+        page.set_viewport_size({'width':390,'height':844})
+        box = dialog.bounding_box()
+        assert box and box['y'] >= -1 and box['y'] + box['height'] <= 845, box
+        assert page.evaluate('document.documentElement.scrollWidth === innerWidth')
+        dialog.get_by_role('button', name='Not now', exact=True).scroll_into_view_if_needed()
+        page.screenshot(path=str(evidence / 'mobile-popup.png'))
+        results['mobile_popup'] = {'bounding_box':box, 'viewport_width':390, 'no_horizontal_overflow':True}
+        dialog.get_by_role('button', name='Not now', exact=True).click()
+        assert page.get_by_role('dialog').count() == 0
+        page.set_viewport_size({'width':1440,'height':1000})
+        original_colors = [(0.5,(255,0,0)),(1.5,(0,255,0)),(2.5,(0,0,255))]
+        results['original'] = download_current('storyboard-3s',3,original_colors)
+        assert results['original']['job']['motion'] == 'pan-right'
+        assert results['original']['job']['prompt'] == 'Pan right'
+        assert results['original']['job']['imageCount'] == 3
+        page.get_by_role('button', name='Extend video', exact=True).click()
+        dialog = completion()
         page.keyboard.press('Escape')
         assert page.get_by_role('dialog').count() == 0
-        first = download('three-images')
-        results['three_images'] = check_video(first, 3, [(0.5, [0]), (1.5, [1]), (2.5, [2])])
-        video = page.get_by_label('Generated video', exact=True)
-        video.evaluate('(v)=>v.play()')
-        before = video.evaluate('(v)=>v.currentTime')
-        page.wait_for_timeout(500)
-        assert video.evaluate('(v)=>v.currentTime') > before
-        video.evaluate('(v)=>v.pause()')
+        results['escape_closes_popup'] = True
         page.get_by_role('button', name='Extend video', exact=True).click()
-        dialog = page.get_by_role('dialog')
-        dialog.get_by_label('Extension prompt', exact=True).fill('Zoom out slowly')
-        dialog.get_by_label('Add extension images', exact=True).set_input_files(images[3:])
+        dialog = completion()
+        dialog.get_by_label('Extension prompt', exact=True).fill('Zoom out')
+        dialog.locator('input[aria-label="Add extension images"]').set_input_files([image_file('yellow',(255,255,0))])
         dialog.locator('.storyboard-image').wait_for()
+        dialog.get_by_role('button', name='+3s', exact=True).click()
         dialog.get_by_role('button', name='Generate extension', exact=True).click()
-        dialog.wait_for(state='hidden')
-        dialog = completed_popup(6)
-        dialog.get_by_role('button', name='Not now', exact=True).click()
-        second = download('extended-images')
-        results['extended_images'] = check_video(second, 6, [(0.5, [0]), (1.5, [1]), (2.5, [2]), (4.5, [0, 1])])
-        page.get_by_role('button', name='Extend video', exact=True).click()
-        page.get_by_label('Extension prompt', exact=True).fill('Keep the camera still')
-        page.get_by_role('button', name='Generate extension', exact=True).click()
-        page.get_by_role('dialog').wait_for(state='hidden')
-        dialog = completed_popup(9)
-        dialog.get_by_role('button', name='Not now', exact=True).click()
-        third = download('continued-final-frame')
-        results['continuation'] = check_video(third, 9, [(0.5, [0]), (1.5, [1]), (2.5, [2]), (4.5, [0, 1]), (7.5, [0, 1])])
-        page.reload(wait_until='networkidle')
-        page.get_by_role('button', name='My videos').click()
-        assert page.locator('article.video-card').count() >= 3
-        page.get_by_role('button', name='Extend saved video').first.click()
-        page.get_by_role('dialog').wait_for()
-        page.keyboard.press('Escape')
-        page.get_by_role('button', name='Create video', exact=True).click()
-        page.get_by_label('Add images', exact=True).set_input_files(images[:3] * 2)
-        page.locator('.storyboard-image').nth(5).wait_for()
-        page.get_by_label('Add images', exact=True).set_input_files(images[:1])
-        assert 'up to 6 images' in page.get_by_role('alert').inner_text()
-        assert page.locator('.storyboard-image').count() == 6
-        page.get_by_role('button', name='Dismiss error', exact=True).click()
-        page.set_viewport_size({'width': 390, 'height': 844})
-        assert page.evaluate('document.documentElement.scrollWidth') == 390
-        page.get_by_role('button', name='My videos').click()
-        page.get_by_role('button', name='Extend saved video').first.click()
-        modal = page.get_by_role('dialog')
-        assert modal.bounding_box()['height'] <= 810
-        modal.get_by_role('button', name='Generate extension', exact=True).scroll_into_view_if_needed()
-        assert page.evaluate('document.documentElement.scrollWidth') == 390
-        page.screenshot(path=str(evidence / 'mobile-popup.png'), full_page=True)
-        page.keyboard.press('Escape')
+        completion().get_by_role('button', name='Not now', exact=True).click()
+        six_colors = original_colors + [(4.5,(255,255,0)),(5.5,(255,255,0))]
+        results['extension'] = download_current('storyboard-6s',6,six_colors)
+        assert results['extension']['job']['parentId'] == results['original']['job']['id']
+        assert results['extension']['job']['motion'] == 'zoom-out'
+        assert results['extension']['job']['prompt'] == 'Zoom out'
+        page.screenshot(path=str(evidence / 'extended.png'), full_page=True)
+        if not args.skip_second_extension:
+            page.get_by_role('button', name='Extend video', exact=True).click()
+            dialog = completion()
+            dialog.get_by_label('Extension prompt', exact=True).fill('Still')
+            dialog.get_by_role('button', name='Generate extension', exact=True).click()
+            completion().get_by_role('button', name='Not now', exact=True).click()
+            results['continuation'] = download_current('storyboard-9s',9,six_colors + [(7.5,(255,255,0)),(8.5,(255,255,0))])
+            assert results['continuation']['job']['parentId'] == results['extension']['job']['id']
+        # Cancellation must not offer extension or add a library entry.
+        count_before_cancel = len(read_jobs(page))
+        page.get_by_role('button', name='10s', exact=True).click()
+        page.get_by_role('button', name='Generate video', exact=True).click()
+        page.get_by_role('button', name='Cancel rendering', exact=True).click()
+        page.wait_for_timeout(900)
         assert page.get_by_role('dialog').count() == 0
-        results['mobile_popup'] = 'passed'
-        assert not results['errors'] and not results['external_requests'], results
-        results['passed'] = True
+        assert len(read_jobs(page)) == count_before_cancel
+        results['cancel_has_no_completion_popup'] = True
+        page.reload(wait_until='networkidle')
+        page.get_by_text('Renderer online' if args.url else 'Browser renderer ready', exact=True).wait_for()
+        assert set(job['id'] for job in created).issubset({job['id'] for job in read_jobs(page)})
+        page.get_by_role('button', name='My videos').click()
+        latest = created[-1]
+        card = page.locator('article.video-card').filter(has=page.locator(f'a[download="{latest["filename"]}"]'))
+        card.get_by_role('button', name='Extend saved video', exact=True).click()
+        completion()
+        results['reload_persistence_and_extend_saved'] = True
+        page.keyboard.press('Escape')
+        for job in reversed(created):
+            card = page.locator('article.video-card').filter(has=page.locator(f'a[download="{job["filename"]}"]'))
+            card.get_by_role('button', name='Delete video', exact=True).click()
+            card.wait_for(state='detached')
+        results['final_ids'] = [job['id'] for job in read_jobs(page)]
+        assert sorted(initial_ids) == sorted(results['final_ids'])
+        assert not results['page_errors'] and not results['console_errors'] and not results['unexpected_http_requests']
+        results['success'] = True
     except Exception as error:
-        results['passed'] = False
-        results['failure'] = str(error)
+        results['success'] = False
+        results['error'] = str(error)
+        results['traceback'] = traceback.format_exc()
+        results['alerts'] = page.get_by_role('alert').all_inner_texts()
         page.screenshot(path=str(evidence / 'failure.png'), full_page=True)
-        raise
     finally:
-        if args.server:
-            for item in page.request.get(url + '/api/videos').json()['videos']:
-                if item['id'] not in initial_ids:
-                    page.request.delete(url + '/api/videos/' + item['id'])
+        results['created_ids'] = [job['id'] for job in created]
         (evidence / 'results.json').write_text(json.dumps(results, indent=2))
         print(json.dumps(results, indent=2))
         browser.close()
+
+if not results.get('success'):
+    raise SystemExit(1)

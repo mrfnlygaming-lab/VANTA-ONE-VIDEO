@@ -170,9 +170,9 @@ export async function inspectImage(
 }
 
 export const FORMATS = {
-  landscape: { width: 1280, height: 720 },
-  portrait: { width: 720, height: 1280 },
-  square: { width: 720, height: 720 },
+  landscape: { width: 1920, height: 1080 },
+  portrait: { width: 1080, height: 1920 },
+  square: { width: 1080, height: 1080 },
 };
 export const MOTIONS = [
   "zoom-in",

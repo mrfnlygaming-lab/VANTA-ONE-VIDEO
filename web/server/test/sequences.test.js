@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -177,6 +177,8 @@ test(
     const filename = await downloaded(directory, origin, job, "sequence");
     const metadata = await probe(filename);
     assert.equal(metadata.streams[0].codec_name, "h264");
+    assert.equal(metadata.streams[0].width, 1920);
+    assert.equal(metadata.streams[0].height, 1080);
     assert.equal(metadata.streams[0].r_frame_rate, "24/1");
     assert.equal(Number(metadata.streams[0].nb_read_frames), 120);
     assert.ok(Math.abs(Number(metadata.format.duration) - 5) < 0.05);
@@ -206,10 +208,23 @@ test(
     const parentResponse = await upload([images[0]], { format: "square" });
     assert.equal(parentResponse.status, 202);
     const parent = await completed(origin, (await parentResponse.json()).id);
+    const service = app.locals.videoService;
+    // Existing libraries may contain 720p videos. Extensions retain the parent's
+    // actual dimensions even when the current default output is 1080p.
+    const legacyParentPath = path.join(directory, "legacy-parent-720.mp4");
+    await exec("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-i", service.filePath(parent.id),
+      "-filter_threads", "1", "-vf", "scale=720:720", "-an", "-c:v", "libx264",
+      "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2",
+      legacyParentPath,
+    ]);
+    await rename(legacyParentPath, service.filePath(parent.id));
+    const internalParent = service.get(parent.id);
+    internalParent.width = 720;
+    internalParent.height = 720;
 
     // Hold the child in the queue so deleting the source exercises the retained parent,
     // rather than merely racing a renderer that already opened the original MP4.
-    const service = app.locals.videoService;
     const pump = service.pump;
     service.pump = () => {};
     let accepted;
@@ -245,6 +260,8 @@ test(
     const child = await completed(origin, accepted.id);
     const childFile = await downloaded(directory, origin, child, "extension");
     const childMetadata = await probe(childFile);
+    assert.equal(childMetadata.streams[0].width, 720);
+    assert.equal(childMetadata.streams[0].height, 720);
     assert.equal(Number(childMetadata.streams[0].nb_read_frames), 144);
     assert.ok(Math.abs(Number(childMetadata.format.duration) - 6) < 0.05);
     await assertFrameColors(childFile, [
@@ -287,6 +304,8 @@ test(
     assert.equal(continuationAccepted.addedDuration, 3);
     assert.equal(continuationAccepted.imageCount, 1);
     assert.equal(continuationAccepted.format, "square");
+    assert.equal(continuationAccepted.width, 720);
+    assert.equal(continuationAccepted.height, 720);
     const continuation = await completed(origin, continuationAccepted.id);
     const continuedFile = await downloaded(
       directory,
@@ -295,6 +314,8 @@ test(
       "last-frame",
     );
     const continuedMetadata = await probe(continuedFile);
+    assert.equal(continuedMetadata.streams[0].width, 720);
+    assert.equal(continuedMetadata.streams[0].height, 720);
     assert.equal(Number(continuedMetadata.streams[0].nb_read_frames), 216);
     assert.ok(Math.abs(Number(continuedMetadata.format.duration) - 9) < 0.05);
     await assertFrameColors(continuedFile, [

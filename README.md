@@ -2,20 +2,18 @@
 
 ## Browser image-to-video studio
 
-**Download the ready-to-open app:** See [downloads](downloads/README.md) for the
-standalone ZIP and simple opening instructions. This download runs without the
-cloud environment's preview panel.
+[VANTA Motion Studio](web/README.md) has **AI scene** and **Camera sequence** modes.
+AI scene sends one to three references together with the full scene prompt to
+Grok for subject animation. It needs a server-side `XAI_API_KEY` and xAI credits.
+Reference scenes use a native 720p source, exported as a labeled 1080p upscale.
+The integration is tested with mocks; live paid generation is not yet verified.
 
-The new [VANTA Motion Studio](web/README.md) runs in a browser. Upload a photo,
-arrange up to six photos, add a camera prompt, and export a video in landscape,
-portrait, or square format. A popup after generation lets you extend the result
-with another scene. The server version runs on Node.js and FFmpeg without API keys or model downloads.
-This is camera animation of a still image, rather than AI subject animation.
+Camera sequence exports up to six ordered photos with pan/zoom at 1080p and an
+extension popup. It needs no API key. [Download the offline camera app](downloads/README.md),
+extract the ZIP, open VANTA-OPEN.html in Chrome/Edge, and select **Camera sequence**.
+The offline download cannot generate AI subject movement.
 
-**Open directly:** After building, open `web/dist/VANTA-OPEN.html` in Chrome or
-Edge. This self-contained version works without a server or environment preview
-and records video inside the browser. It prefers MP4 and falls back to WebM when
-the browser does not support MP4 recording.
+For the server version (Node.js24 and FFmpeg required):
 
 ```sh
 cd web
@@ -24,8 +22,9 @@ npm run build
 npm start
 ```
 
-The app serves its client and rendering API on port 3001. See the web README for
-development commands, storage limits, and validation.
+Configure the key securely in Environment settings for AI mode. The server uses
+port3001; this onboarding screen cannot expose a live preview. See the web README
+for setup, provider sources, privacy, storage, and validation.
 
 ## Original on-device iPhone text-to-video integration (research build)
 

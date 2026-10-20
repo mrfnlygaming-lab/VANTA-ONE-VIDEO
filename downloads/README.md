@@ -1,23 +1,22 @@
-# Download and open VANTA Motion Studio
+# Download VANTA Motion Studio
 
-1. Open **VANTA-MOTION-STUDIO.zip** in this folder and select **Download raw file**.
-2. Extract the ZIP on your computer.
-3. Open **VANTA-OPEN.html** in a current Chrome or Edge browser.
-4. Choose up to six images and arrange their order. Add a prompt such as “pan left.”
-5. Select **Generate video** and keep the tab visible while rendering.
-6. After generation, use the extension popup to append another scene from new
-   images or the final frame, or select **Not now** to play/download the result.
-   Extensions preserve the original video and can repeat up to 60 seconds total.
+1. Download **VANTA-MOTION-STUDIO.zip** in this folder using **Download raw file**.
+2. Extract the ZIP and open **VANTA-OPEN.html** in Chrome or Edge.
+3. Set generation mode to **Camera sequence · pan and zoom**.
+4. Add one to six photos, a camera prompt, and select **Generate video**.
+5. Keep the tab visible. Download the result or append a scene from the extension
+   popup. Extensions can repeat up to 60 seconds total.
 
-The ZIP contains the complete HTML app and opening instructions. It needs no
-server, Node.js installation, hosting account, API key, or network connection to
-run. If the HTML opens in an editor, use **Open With → Chrome or Edge**.
+This is the **offline camera app**, with 1080p pan/zoom exports. It needs no
+server or key, but cannot create AI subject movement. Browser recording prefers
+MP4/H.264, with WebM fallback. Download videos before clearing browser storage.
 
-This app creates pan-and-zoom camera animation. It does not generate new subject
-movement with an AI model. MP4/H.264 is preferred; browsers without MP4 recording
-use WebM. Saved history uses browser storage; download videos you want to keep.
+**For AI subject movement:** run the [server version](../web/README.md) with an
+xAI API key. AI scene combines one to three references in one scene and sends
+the full prompt to Grok. It uses xAI credits and exports a clearly labeled
+720p-to-1080p upscale. The key belongs in secure server settings, never this HTML.
+Live paid generation has not been verified without the missing key.
 
-The source and build instructions are in [web](../web/README.md).
-Rebuild with `npm run build` and package with
-`python3 scripts/package-standalone.py` from that directory. Copy the rebuilt
-HTML and ZIP here together when refreshing these downloadable files.
+Rebuild in `web` using `npm run build` and
+`python3 scripts/package-standalone.py`. Copy the HTML, ZIP, and OPEN-ME.txt here
+together. The cloud environment's publication does not host the web app.
