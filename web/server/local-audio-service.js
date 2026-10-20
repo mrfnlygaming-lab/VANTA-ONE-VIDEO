@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_ROOT = "P:\\GROK\\VANTA_AUDIO\\HunyuanVideo-Foley";
 
@@ -82,7 +83,8 @@ export class LocalAudioService {
       process.env.VANTA_FOLEY_PYTHON ||
       path.join(this.root, "venv", "Scripts", "python.exe");
     this.script =
-      process.env.VANTA_FOLEY_SCRIPT || path.join(this.root, "infer.py");
+      process.env.VANTA_FOLEY_SCRIPT ||
+      fileURLToPath(new URL("./foley-runner.py", import.meta.url));
     this.modelDir =
       process.env.VANTA_FOLEY_MODEL_DIR || path.join(this.root, "pretrained_models");
     this.modelSize = process.env.VANTA_FOLEY_MODEL_SIZE || "xl";
@@ -134,6 +136,8 @@ export class LocalAudioService {
     try {
       const stepMap = { turbo: 12, balanced: 20, quality: 30 };
       const audioSteps = stepMap[speedMode] || 12;
+      const audioPath = path.join(audioDir, "vanta-foley.wav");
+      await rm(audioPath, { force: true });
       const args = [
         this.script,
         "--model_path", this.modelDir,
@@ -142,7 +146,7 @@ export class LocalAudioService {
         "--device", "cuda",
         "--single_video", videoPath,
         "--single_prompt", audioPrompt,
-        "--output_dir", audioDir,
+        "--output_audio", audioPath,
         "--enable_offload",
       ];
       await run(this.python, args, {
@@ -151,8 +155,8 @@ export class LocalAudioService {
         maxMs: 1_800_000,
       });
 
-      const audioPath = await findNewestAudio(audioDir);
-      if (!audioPath) throw new Error("Foley model returned no audio file");
+      if (!existsSync(audioPath))
+        throw new Error("Foley model returned no audio file");
 
       const muxed = path.join(workDir, "with-audio.mp4");
       await run(
