@@ -237,7 +237,7 @@ export class XaiService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(job => this.publicJob(job));
   }
 
-  async enqueue(files, { prompt, duration, format, parentId = null, backgroundIndex = 0, keepIdentity = true, keepOutfit = true, aiBackend = "vanta-motion", soundMode = "silent", speedMode = "turbo" }, signal) {
+  async enqueue(files, { prompt, duration, format, parentId = null, backgroundIndex = 0, keepIdentity = true, keepOutfit = true, aiBackend = "vanta-motion", soundMode = "silent", speedMode = "hyper" }, signal) {
     this._ready();
     cancelled(signal);
     if (parentId) throw new RenderError("AI video extension is not supported. Create a new AI video, or extend a camera-motion video.", 422);
