@@ -1,88 +1,53 @@
-# VANTA Motion Studio — no-credit local image-to-video
+# VANTA Motion Studio — local VANTA Motion Core
 
-The Codex branch now defaults to a local LTX-Video GPU backend, not Grok,
-xAI, a paid trial, or any credit-limited video API. Uploaded photos and prompts
-are processed locally by the PC server; the AI model generates actual new frames.
-There is NO per-generation payment, xAI API key, or cloud generation account.
+VANTA now uses **VANTA Motion Core** as its only AI video engine in this branch.
+There is no xAI/Grok API key, no paid generation credit requirement, and no LTX fallback.
 
-## Run on Windows using existing LTX
+## What VANTA Motion Core is today
 
-> **Important:** use a freshly downloaded copy of this branch. Old extracted folders can still contain the pre-fix `scripts/start-local.mjs` that crashes on a missing `dist/index.html`. The current `START-VANTA.cmd` downloads portable Node if needed, builds the UI automatically, and starts the local LTX backend.
+The current core runs the local Wan 2.1 T2V 1.3B stack already used for the XZAKUT training work, plus the trained XZAKUT motion LoRA:
 
-1. Download this branch source ZIP:
-   https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/archive/refs/heads/codex/vanta-browser-studio.zip
-2. Extract the ZIP and go into the web folder.
-3. Double-click START-VANTA.cmd.
-4. Open http://127.0.0.1:3001 if the browser does not open automatically.
+- Python: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\venv\\Scripts\\python.exe`
+- Generator: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\musubi-tuner\\src\\musubi_tuner\\wan_generate_video.py`
+- Base DiT: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\models\\split_files\\diffusion_models\\wan2.1_t2v_1.3B_bf16.safetensors`
+- VAE: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\models\\split_files\\vae\\wan_2.1_vae.safetensors`
+- T5: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\models\\models_t5_umt5-xxl-enc-bf16.pth`
+- Trained adapter: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\trained_loras_original_v6\\XZAKUT_FIRST_TEST.safetensors`
 
-The launcher defaults to your existing LTX repo at:
-    P:\GROK\AXG-Motion\LTX-Video
-and your existing Python at:
-    P:\GROK\python.exe
+The app calls the same Wan/Musubi generation path that successfully loaded the trained LoRA in the comparison run.
 
-If those locations differ, edit the two LTX_DIR / LTX_PYTHON lines near the
-top of START-VANTA.cmd. It also needs free Node.js 24, npm, FFmpeg and
-FFprobe installed. Set FFMPEG_PATH and FFPROBE_PATH to the full paths of those
-executables if they are not on PATH. The launcher does not redownload giant
-model weights or touch paid cloud providers. The existing Python environment
-must already contain working LTX dependencies and model weights.
+## Reference images
 
-The server binds to 127.0.0.1 only. Keep the CMD window open during rendering.
+Reference images are deliberately disabled in VANTA Motion Core for now.
 
-## First generation
+The confirmed local checkpoint is T2V, not an image-conditioned 1.3B checkpoint. VANTA will not silently route images through another video model just to make the button appear complete.
 
-1. Select AI scene - local GPU.
-2. Add ONE starting JPG, PNG or WebP image.
-3. Type a real motion prompt, for example: "A dog raises its head and wags
-   its tail, natural daylight, stable camera."
-4. Choose 3 seconds, then Generate AI scene.
-5. After local GPU inference, download the resulting H.264 MP4.
+**VANTA Reference Core** is the next custom adapter: it will be trained on top of the same VANTA motion backbone so 1–4 reference images, selected background, identity and outfit guidance can return without an unrelated fallback model.
 
-This calls the official local image-conditioning LTX inference.py entry point
-with conditioning_media_paths pointing at your photo and frame 0.
-It automatically looks for 2B distilled model configs from 0.9.8 and 0.9.6
-or 2B 0.9.6 dev. If your existing model uses a different config file, set
-LTX_CONFIG to the full YAML path before starting the app.
+## Audio
 
-The image is resized to 512x288, 288x512, or 384x384 depending on aspect
-ratio. The generated output is labeled as an upscaled 1080p export, NOT
-native 1080p detail. GPU model rendering can take minutes or longer. It is
-not a seven-second miracle. Try 3 seconds first, especially with 16 GB VRAM.
+VANTA includes an optional post-render **Auto Sound** stage.
 
-## Limitations and credit policy
+The planned primary local audio engine is HunyuanVideo-Foley XL. It runs after video generation so the video model can release VRAM first. If the audio model is not installed, VANTA keeps the completed silent video instead of failing the whole job.
 
-- Local AI uses 1–4 reference images per scene. It does not combine three
-  different subject photos into one new scene as Grok may do.
-- Camera sequence can take 2-6 ordered photos but only creates pan/zoom
-  motion, not invented subject movement.
-- Local AI produces silent footage; no voice or synced audio generation.
-- Photo identity may drift. GPU memory can run out, especially for 10 seconds.
-- Cancel stops the local Python inference process and removes temporary data.
-- Completed MP4s are saved under web/.data/ai-videos and the latest 50
-  completed video records are retained.
-- Real AI inference needs working model weights, local compute, and storage.
-  This cannot be eliminated by swapping out a paid API.
-- The source and backend are committed, but live Windows model generation has
-  not yet been verified on your PC.
+Dialogue will be a separate local layer, then VANTA will mix dialogue + Foley/ambience and mux the result into the MP4.
 
-The older VANTA-AI-LOCAL-SERVER.zip was built before the no-credit patch
-and STILL USES xAI credits. Do not use that obsolete archive. The updated
-source ZIP above is the no-credit branch.
+## Start VANTA
 
-## Test commands
+1. Download the current Codex branch.
+2. Extract it.
+3. Open the `web` folder.
+4. Run `START-VANTA.cmd`.
 
-From the web folder:
-    npm ci
-    npm run build
-    npm test
+The launcher uses portable Node when needed, builds the frontend, starts the local server, and opens the browser.
 
-Tests do not replace a real 3-second GPU smoke test on the Windows computer.
-Existing xAI code is retained for legacy mock-provider tests only; the
-default server instance always selects the local LTX backend instead.
+## Current truth
 
-
-## Multi-reference scenes
-
-Local AI mode now accepts **1–4 reference images**. Choose **Use background from** to make one reference the primary environment/background anchor. **Keep identity** and **Keep outfit / hair / makeup** add preservation instructions while the other references are sent to LTX as additional conditioning inputs.
-
-The selected background receives the strongest local conditioning. The other references are deliberately weaker so their rooms/backgrounds are less likely to replace the chosen scene. Long-form prompts up to 4,000 characters are accepted. Local LTX can still drift on very difficult identity or multi-person shots; these controls improve guidance but are not a mathematical identity lock.
+- AI generation: VANTA Motion Core only.
+- Base architecture: Wan 2.1 T2V 1.3B.
+- Custom weights: XZAKUT trained motion LoRA.
+- References: temporarily disabled until VANTA Reference Core is trained.
+- Sound: optional local post-render pipeline; requires its own installed model.
+- Credits: no paid video-generation API credits.
+- Output: locally upscaled 1080p MP4.
+- Camera sequence mode: still available as a non-AI pan/zoom tool.
