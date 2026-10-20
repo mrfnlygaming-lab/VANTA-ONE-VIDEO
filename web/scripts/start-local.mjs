@@ -113,11 +113,18 @@ async function ensureFrontend() {
 
   const env = { ...process.env };
   delete env.XAI_API_KEY;
-  await runNpm(['run', 'build'], env);
+
+  // The local desktop server only needs Vite's normal dist/index.html.
+  // Do NOT run the full npm build here: that also runs strict TypeScript
+  // checking and standalone packaging, either of which can stop desktop
+  // startup even when the browser app itself is perfectly buildable.
+  const viteBin = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+  await access(viteBin);
+  await run(process.execPath, ['--use-env-proxy', '--use-system-ca', viteBin, 'build'], { env });
 
   if (!(await frontendExists())) {
     throw new Error(
-      'Frontend build finished without creating dist\\index.html. Run npm run build inside the web folder and read the first build error shown.',
+      'Vite finished without creating dist\\index.html. Delete web\\dist and launch START-VANTA.cmd again.',
     );
   }
   console.log('VANTA frontend build complete.');
