@@ -11,9 +11,9 @@ Extract it, open the `web` folder, and run `START-VANTA.cmd`.
 The active AI engine is **VANTA Motion Core**:
 
 - local Wan 2.1 T2V 1.3B backbone
-- trained XZAKUT motion LoRA
+- trained VANTA motion adapter
 - no paid video-generation API credits
-- no LTX fallback
+- no alternate video-model fallback
 - optional local Auto Sound stage
 
 Reference images are temporarily disabled while VANTA Reference Core is trained.
