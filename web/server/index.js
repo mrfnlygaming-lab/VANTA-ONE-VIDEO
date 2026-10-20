@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
 import { XaiService } from "./xai-service.js";
+import { LocalLtxService } from "./local-ltx-service.js";
 import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
@@ -20,7 +21,10 @@ export async function createApp(options = {}) {
   });
   await service.init();
   app.locals.videoService = service;
-  const aiService = new XaiService({
+  // Existing mocked xAI tests may explicitly inject xaiOptions; real launches default
+  // to the no-credit local LTX engine and never contact an AI cloud provider.
+  const AIService = options.xaiOptions ? XaiService : LocalLtxService;
+  const aiService = new AIService({
     dataDir: options.dataDir ?? path.join(webDir, ".data"),
     ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath } : {}),
     ...(options.ffprobePath ? { ffprobePath: options.ffprobePath } : {}),
@@ -59,11 +63,12 @@ export async function createApp(options = {}) {
     res.json({
       local: true,
       ai: aiService.configured,
-      aiNeedsKey: !aiService.configured,
-      aiMaxImages: 3,
-      aiModel: "grok-imagine-video-1.5",
+      aiNeedsKey: false,
+      aiNeedsLocalModel: !aiService.configured,
+      aiMaxImages: options.xaiOptions ? 3 : 1,
+      aiModel: options.xaiOptions ? "mock-xai" : "LTX-Video 2B local",
       outputResolution: "1080p",
-      aiSourceResolution: "720p",
+      aiSourceResolution: options.xaiOptions ? "720p" : "512x288 or 384x384",
       aiUpscaled: true,
     }),
   );
@@ -220,7 +225,7 @@ if (
 ) {
   const app = await createApp();
   const port = Number(process.env.PORT || 3001);
-  const server = app.listen(port, "0.0.0.0", (error) => {
+  const server = app.listen(port, "127.0.0.1", (error) => {
     if (error) {
       console.error(
         `Unable to start video server on port ${port}: ${error.message}`,
