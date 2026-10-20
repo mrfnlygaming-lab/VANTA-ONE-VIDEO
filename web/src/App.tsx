@@ -111,6 +111,9 @@ export default function App() {
   const [aiAvailable, setAiAvailable] = useState(false);
   const [checkingAi, setCheckingAi] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [backgroundIndex, setBackgroundIndex] = useState(0);
+  const [keepIdentity, setKeepIdentity] = useState(true);
+  const [keepOutfit, setKeepOutfit] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [motion, setMotion] = useState<Motion>("zoom-in");
   const [format, setFormat] = useState<Format>("landscape");
@@ -267,11 +270,12 @@ export default function App() {
     setError(null);
     setLoadingImage(true);
     try {
-      if (engine === "ai" && files.length + candidates.length > 1)
-        throw new Error("Choose one starting image for local AI video. Use Camera sequence for multiple photos.");
+      if (engine === "ai" && files.length + candidates.length > 4)
+        throw new Error("Choose up to four AI reference images.");
       const next = await validateImages(candidates, files);
       if (version === sourceVersion.current) {
         setFiles(next);
+        if (backgroundIndex >= next.length) setBackgroundIndex(0);
         setJob(null);
         setPreviewMotion(false);
       }
@@ -389,10 +393,10 @@ export default function App() {
     if (!file || active) return;
     if (
       engine === "ai" &&
-      (!aiAvailable || !prompt.trim() || files.length > 1)
+      (!aiAvailable || !prompt.trim() || files.length > 4)
     ) {
       setError(
-        "Local AI video needs the PC server, a working LTX model, one starting image, and a scene prompt. No API key or credits.",
+        "Local AI video needs the PC server, a working LTX model, 1–4 reference images, and a scene prompt. No API key or credits.",
       );
       return;
     }
@@ -404,6 +408,9 @@ export default function App() {
       files.forEach((image) => data.append("image", image));
       data.append("prompt", engine === "ai" ? prompt : prompt.trim());
       data.append("engine", engine);
+      data.append("backgroundIndex", String(backgroundIndex));
+      data.append("keepIdentity", String(keepIdentity));
+      data.append("keepOutfit", String(keepOutfit));
       data.append("motion", motion);
       data.append("format", format);
       data.append("duration", String(duration));
@@ -599,7 +606,7 @@ export default function App() {
                   </select>
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Generate genuine AI movement using one starting image and your prompt, entirely on your PC."
+                      ? "Generate genuine AI movement using 1–4 references and your prompt, entirely on your PC."
                       : "Play up to six still images in order with camera movement. This mode does not animate subjects."}
                   </p>
                   {engine === "ai" && !aiAvailable && (
@@ -607,7 +614,7 @@ export default function App() {
                       <p>
                         {runtime.standalone
                           ? "This standalone HTML can animate camera movement only. For genuine AI subject movement, start the PC server with your local LTX model. No credits are needed."
-                          : "Local AI needs your installed LTX-Video model. Set LTX_DIR and LTX_PYTHON on the PC, restart the server, then Check AI setup. There is no paid API."}
+                          : "Local AI needs your installed LTX-Video model. Add up to four references, choose which one supplies the background, then generate locally. There is no paid API."}
                       </p>
                       <div className="ai-setup-actions">
                         {runtime.standalone && (
@@ -648,30 +655,84 @@ export default function App() {
                   <div className="section-title">
                     <h2>
                       <span className="step">01</span>{" "}
-                      {engine === "ai" ? "Scene references" : "Your images"}
+                      {engine === "ai" ? "Scene references · up to 4" : "Your images"}
                     </h2>
                     <span className="small-label">JPG, PNG, WEBP</span>
                   </div>
                   <ImageSelector
                     files={files}
-                    maxImages={engine === "ai" ? 1 : 6}
+                    maxImages={engine === "ai" ? 4 : 6}
                     references={engine === "ai"}
                     onAdd={selectFiles}
                     onChange={(next) => {
                       sourceVersion.current++;
                       setFiles(next);
+                      if (backgroundIndex >= next.length) setBackgroundIndex(0);
                       setJob(null);
                       setPreviewMotion(false);
                     }}
                     disabled={!!active}
                     loading={loadingImage}
                   />
+                  {engine === "ai" && files.length > 0 && (
+                    <div className="reference-controls">
+                      <label className="field-label" htmlFor="background-reference">
+                        Use background from
+                      </label>
+                      <select
+                        id="background-reference"
+                        className="engine-select"
+                        value={Math.min(backgroundIndex, Math.max(0, files.length - 1))}
+                        disabled={!!active}
+                        onChange={(event) => {
+                          setBackgroundIndex(Number(event.target.value));
+                          setJob(null);
+                        }}
+                      >
+                        {files.map((file, index) => (
+                          <option key={`${file.name}-${index}`} value={index}>
+                            Image {index + 1} · {file.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="reference-preserve-options">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={keepIdentity}
+                            disabled={!!active}
+                            onChange={(event) => {
+                              setKeepIdentity(event.target.checked);
+                              setJob(null);
+                            }}
+                          />
+                          Keep identity
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={keepOutfit}
+                            disabled={!!active}
+                            onChange={(event) => {
+                              setKeepOutfit(event.target.checked);
+                              setJob(null);
+                            }}
+                          />
+                          Keep outfit / hair / makeup
+                        </label>
+                      </div>
+                      <p className="prompt-explanation">
+                        The chosen image is the primary environment/background anchor.
+                        Other references are used as appearance guides.
+                      </p>
+                    </div>
+                  )}
                   <button
                     className="example-button"
                     disabled={
                       active ||
                       loadingImage ||
-                      files.length >= (engine === "ai" ? 3 : 6)
+                      files.length >= (engine === "ai" ? 4 : 6)
                     }
                     onClick={useExample}
                   >
@@ -758,7 +819,7 @@ export default function App() {
                   )}
                   <p className="prompt-explanation">
                     {engine === "ai"
-                      ? "Your prompt and one reference image stay on this PC. The local LTX model generates new frames; it may change small identity details."
+                      ? "Your prompt and references stay on this PC. The selected background reference is anchored strongest; the other images guide identity and outfit. Local models can still drift on difficult shots."
                       : `${promptMotion(prompt) ? `Camera direction: ${selectedMotion.title}.` : "Camera words control movement; other details are saved as notes."} This mode does not generate AI subject motion.`}
                   </p>
                   <div className="section-divider" />
