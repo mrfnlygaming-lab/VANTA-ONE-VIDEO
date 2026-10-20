@@ -11,13 +11,17 @@ const DEFAULT_ROOT = "P:\\GROK\\VANTA_AUDIO\\HunyuanVideo-Foley";
 
 function run(command, args, { cwd, signal, maxMs = 1_800_000 } = {}) {
   return new Promise((resolve, reject) => {
+    const childEnv = { ...process.env };
+    // Transformers warns whenever this deprecated variable exists, even if
+    // VANTA did not set it. Strip inherited copies before starting Python.
+    delete childEnv.TRANSFORMERS_CACHE;
     const child = spawn(command, args, {
       cwd,
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...childEnv,
         HF_HUB_DISABLE_TELEMETRY: "1",
         HF_HOME: process.env.VANTA_AUDIO_HF_HOME || "P:\\GROK\\VANTA_AUDIO\\HF_CACHE",
       },
@@ -193,9 +197,15 @@ export class LocalAudioService {
           "The local Auto Sound pass failed, so VANTA kept the finished silent video. " +
           (error instanceof Error
             ? error.message
-                .replace(/.*TRANSFORMERS_CACHE.*\\r?\\n?/g, "")
-                .replace(/.*FutureWarning.*\\r?\\n?/g, "")
-                .slice(-1400)
+                .split(/\\r?\\n/)
+                .filter(line =>
+                  !line.includes("TRANSFORMERS_CACHE") &&
+                  !line.includes("FutureWarning") &&
+                  line.trim() !== "warnings.warn("
+                )
+                .join("\\n")
+                .trim()
+                .slice(-1800)
             : ""),
       };
     }
