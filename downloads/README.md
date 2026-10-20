@@ -1,23 +1,25 @@
 # VANTA downloads
 
-## AI video with NO credits — updated source
+## Current Windows AI studio
 
-Use the [credit-free local Windows engine](../web/LOCAL-NO-CREDITS.md).
-Download the updated Codex branch source ZIP from:
+Use the current Codex branch source:
+
 https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/archive/refs/heads/codex/vanta-browser-studio.zip
 
-Extract it, open the web folder, then double-click START-VANTA-LOCAL.cmd.
-You need your installed LTX-Video 2B engine, Python, Node.js, FFmpeg, FFprobe,
-and NVIDIA GPU. It renders subject movement locally and needs no xAI key or
-per-video credits. Real GPU inference has not yet been verified on your PC.
+Extract it, open the `web` folder, and run `START-VANTA.cmd`.
 
-IMPORTANT: VANTA-AI-LOCAL-SERVER.zip in this folder is an OLD build.
-It STILL USES XAI_API_KEY and paid xAI credits. Do not download that package
-for credit-free video generation. It is retained as a historical archive only.
+The active AI engine is **VANTA Motion Core**:
+
+- local Wan 2.1 T2V 1.3B backbone
+- trained XZAKUT motion LoRA
+- no paid video-generation API credits
+- no LTX fallback
+- optional local Auto Sound stage
+
+Reference images are temporarily disabled while VANTA Reference Core is trained.
+
+The old `VANTA-AI-LOCAL-SERVER.zip` remains a historical archive and should not be used for the current AI workflow.
 
 ## Camera-only offline ZIP
 
-VANTA-MOTION-STUDIO.zip contains an offline HTML camera sequence animator.
-It makes pan/zoom effects from 1-6 still photos. It uses no credits and no
-local AI weights, but cannot invent real subject movement.
-To use it, extract the ZIP and open VANTA-OPEN.html in Chrome or Edge.
+`VANTA-MOTION-STUDIO.zip` is the older offline pan/zoom animator. It does not generate new subject motion.
