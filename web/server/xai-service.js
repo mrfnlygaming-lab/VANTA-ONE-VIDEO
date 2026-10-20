@@ -237,7 +237,7 @@ export class XaiService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(job => this.publicJob(job));
   }
 
-  async enqueue(files, { prompt, duration, format, parentId = null, backgroundIndex = 0, keepIdentity = true, keepOutfit = true }, signal) {
+  async enqueue(files, { prompt, duration, format, parentId = null, backgroundIndex = 0, keepIdentity = true, keepOutfit = true, aiBackend = "ltx", soundMode = "silent" }, signal) {
     this._ready();
     cancelled(signal);
     if (parentId) throw new RenderError("AI video extension is not supported. Create a new AI video, or extend a camera-motion video.", 422);
@@ -283,7 +283,7 @@ export class XaiService {
         id, status: "queued", progress: 0, createdAt: new Date().toISOString(), completedAt: null,
         engine: "ai", model: MODEL, extendable: false, canCancel: false, cancelWarning: CANCEL_WARNING,
         prompt, motion: null, parentId: null, requestedDuration: duration, duration, addedDuration: duration,
-        imageCount: images.length, backgroundIndex, keepIdentity: Boolean(keepIdentity), keepOutfit: Boolean(keepOutfit), format, ...FORMATS[format], sourceResolution: "720p", outputResolution: "1080p", upscaled: true,
+        imageCount: images.length, backgroundIndex, keepIdentity: Boolean(keepIdentity), keepOutfit: Boolean(keepOutfit), aiBackend, soundMode, audioEngine: null, hasAudio: false, format, ...FORMATS[format], sourceResolution: "720p", outputResolution: "1080p", upscaled: true,
         filename: `vanta-ai-${id.slice(0, 8)}.mp4`, mimeType: "video/mp4", extension: "mp4", error: null,
       };
       this.jobs.set(id, job);
