@@ -65,6 +65,7 @@ type Video = {
   audioEngine?: string | null;
   soundMode?: SoundMode;
   speedMode?: SpeedMode;
+  stage?: string;
   extendable?: boolean;
   upscaled?: boolean;
   sourceResolution?: string;
@@ -1045,11 +1046,19 @@ export default function App() {
                         </h3>
                         <p>
                           {submitting
-                            ? runtime.standalone
-                              ? "Opening your starting frame"
-                              : "Uploading your starting frame"
+                            ? "Starting VANTA Motion Core"
                             : job?.engine === "ai"
-                              ? "Rendering real AI movement on your GPU, then upscaling to 1080p. Longer scenes take more time."
+                              ? job.stage === "loading-core"
+                                ? "Loading the trained motion core into GPU memory…"
+                                : job.stage === "generating-frames"
+                                  ? `Generating AI frames · ${Math.round(job.progress || 0)}%`
+                                  : job.stage === "upscaling"
+                                    ? "AI frames are done · building the 1080p export…"
+                                    : job.stage === "adding-audio"
+                                      ? "Video is done · generating synchronized audio…"
+                                      : job.stage === "finalizing"
+                                        ? "Finalizing the MP4…"
+                                        : `VANTA is working · ${Math.round(job.progress || 0)}%`
                               : `${Math.round(job?.progress || 0)}% rendered`}
                         </p>
                         <div className="progress-track">
