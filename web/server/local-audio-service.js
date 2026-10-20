@@ -3,7 +3,7 @@
 // released by the video model first. No cloud API or per-generation credits.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -54,8 +54,13 @@ function run(command, args, { cwd, signal, maxMs = 1_800_000 } = {}) {
     child.once("close", code => {
       if (signal?.aborted) return finish(new Error("cancelled"));
       if (timedOut) return finish(new Error("audio timed out"));
-      if (code !== 0)
-        return finish(new Error((stderr || stdout || "audio process failed").slice(-8000)));
+      if (code !== 0) {
+        const combined = [
+          stdout ? "STDOUT:\n" + stdout : "",
+          stderr ? "STDERR:\n" + stderr : "",
+        ].filter(Boolean).join("\n\n");
+        return finish(new Error((combined || "audio process failed").slice(-16000)));
+      }
       finish();
     });
   });
@@ -156,11 +161,38 @@ export class LocalAudioService {
         "--output_audio", audioPath,
         "--enable_offload",
       ];
-      await run(this.python, args, {
-        cwd: this.root,
-        signal,
-        maxMs: 1_800_000,
-      });
+      let foleyResult;
+      try {
+        foleyResult = await run(this.python, args, {
+          cwd: this.root,
+          signal,
+          maxMs: 1_800_000,
+        });
+      } catch (runError) {
+        const debugPath = path.join(workDir, "foley-error.log");
+        try {
+          await writeFile(
+            debugPath,
+            runError instanceof Error ? runError.message : String(runError),
+            "utf8",
+          );
+        } catch {}
+        throw new Error(
+          (runError instanceof Error ? runError.message : String(runError)) +
+          "\nFULL_LOG=" + debugPath
+        );
+      }
+
+      try {
+        await writeFile(
+          path.join(workDir, "foley-success.log"),
+          [
+            foleyResult?.stdout ? "STDOUT:\n" + foleyResult.stdout : "",
+            foleyResult?.stderr ? "STDERR:\n" + foleyResult.stderr : "",
+          ].filter(Boolean).join("\n\n"),
+          "utf8",
+        );
+      } catch {}
 
       if (!existsSync(audioPath))
         throw new Error("Foley model returned no audio file");
@@ -201,14 +233,18 @@ export class LocalAudioService {
           (error instanceof Error
             ? error.message
                 .split(/\\r?\\n/)
-                .filter(line =>
-                  !line.includes("TRANSFORMERS_CACHE") &&
-                  !line.includes("FutureWarning") &&
-                  line.trim() !== "warnings.warn("
-                )
+                .filter(line => {
+                  const t = line.trim();
+                  return (
+                    t &&
+                    !line.includes("TRANSFORMERS_CACHE") &&
+                    !line.includes("FutureWarning") &&
+                    t !== "warnings.warn("
+                  );
+                })
+                .slice(-28)
                 .join("\\n")
-                .trim()
-                .slice(-1800)
+                .slice(-3000)
             : ""),
       };
     }
