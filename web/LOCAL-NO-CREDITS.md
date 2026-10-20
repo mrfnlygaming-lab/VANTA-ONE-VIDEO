@@ -1,11 +1,11 @@
 # VANTA Motion Studio — local VANTA Motion Core
 
 VANTA now uses **VANTA Motion Core** as its only AI video engine in this branch.
-There is no xAI/Grok API key, no paid generation credit requirement, and no LTX fallback.
+There is no xAI/Grok API key, no paid generation credit requirement, and no alternate video-model fallback.
 
 ## What VANTA Motion Core is today
 
-The current core runs the local Wan 2.1 T2V 1.3B stack already used for the XZAKUT training work, plus the trained XZAKUT motion LoRA:
+The current core runs the local Wan 2.1 T2V 1.3B stack already used for the XZAKUT training work, plus the trained VANTA motion adapter:
 
 - Python: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\venv\\Scripts\\python.exe`
 - Generator: `P:\\GROK\\XZAKUT_TRAINING_NATIVE\\musubi-tuner\\src\\musubi_tuner\\wan_generate_video.py`
