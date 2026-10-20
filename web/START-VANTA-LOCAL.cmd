@@ -2,8 +2,8 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 title VANTA Motion Studio - no credits, local GPU
-if not defined LTX_DIR set "LTX_DIR=P:\GROK\AXG-Motion\LTX-Video"
-if not defined LTX_PYTHON set "LTX_PYTHON=P:\GROK\python.exe"
+if not defined LTX_DIR set "LTX_DIR=P:\grok\AXG-Motion\LTX-Video"
+if not defined LTX_PYTHON set "LTX_PYTHON=P:\grok\AXG-Motion\env\Scripts\python.exe"
 echo.
 echo ==============================================
 echo VANTA LOCAL AI - NO CREDITS OR API KEY
