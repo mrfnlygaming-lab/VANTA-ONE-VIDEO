@@ -24,7 +24,7 @@ export async function createApp(options = {}) {
   });
   await service.init();
   app.locals.videoService = service;
-  // VANTA Motion Core: one local engine, no cloud provider and no LTX.
+  // VANTA Motion Core: one local engine, no cloud video provider or hidden fallback.
   const wanService = new VantaMotionService({
     dataDir: options.dataDir ?? path.join(webDir, ".data"),
     ffmpegPath,
