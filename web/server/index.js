@@ -8,6 +8,7 @@ import { FORMATS, MOTIONS, RenderError } from "./renderer.js";
 import { VideoService } from "./video-service.js";
 import { XaiService } from "./xai-service.js";
 import { LocalLtxService } from "./local-ltx-service.js";
+import { LocalWanService } from "./local-wan-service.js";
 import { MAX_IMAGES, MAX_PROMPT_LENGTH } from "../shared/prompt.js";
 
 const webDir = fileURLToPath(new URL("..", import.meta.url));
@@ -36,7 +37,19 @@ export async function createApp(options = {}) {
   });
   await aiService.init();
   app.locals.aiService = aiService;
-  const sourceFor = (id) => (aiService.get(id) ? aiService : service);
+
+  const wanService = options.xaiOptions
+    ? null
+    : new LocalWanService({
+        dataDir: options.dataDir ?? path.join(webDir, ".data"),
+        ffmpegPath,
+        ffprobePath,
+      });
+  if (wanService) await wanService.init();
+  app.locals.wanService = wanService;
+
+  const sourceFor = (id) =>
+    wanService?.get(id) ? wanService : aiService.get(id) ? aiService : service;
   const upload = multer({
     storage: multer.diskStorage({
       destination: service.uploadDir,
@@ -66,11 +79,16 @@ export async function createApp(options = {}) {
   app.get("/api/capabilities", (_req, res) =>
     res.json({
       local: true,
-      ai: aiService.configured,
+      ai: aiService.configured || Boolean(wanService?.configured),
+      referenceAi: aiService.configured,
+      xzakutMotion: Boolean(wanService?.configured),
       aiNeedsKey: Boolean(options.xaiOptions) && !aiService.configured,
-      aiNeedsLocalModel: !aiService.configured,
+      aiNeedsLocalModel: !aiService.configured && !wanService?.configured,
       aiMaxImages: options.xaiOptions ? 3 : 4,
       aiModel: options.xaiOptions ? "mock-xai" : "LTX-Video 2B local",
+      xzakutModel: wanService?.configured
+        ? "XZAKUT Motion · Wan 2.1 1.3B + trained LoRA"
+        : null,
       outputResolution: "1080p",
       aiSourceResolution: options.xaiOptions ? "720p" : "512x288 or 384x384",
       aiUpscaled: true,
@@ -78,7 +96,7 @@ export async function createApp(options = {}) {
   );
   app.get("/api/videos", (_req, res) =>
     res.json({
-      videos: [...service.list(), ...aiService.list()].sort((a, b) =>
+      videos: [...service.list(), ...aiService.list(), ...(wanService?.list() ?? [])].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt),
       ),
     }),
@@ -103,14 +121,22 @@ export async function createApp(options = {}) {
         backgroundIndex = "0",
         keepIdentity = "true",
         keepOutfit = "true",
+        aiBackend = "ltx",
+        soundMode = "silent",
       } = req.body;
       if (!["ai", "camera"].includes(engine))
         throw new RenderError("Choose AI scene or Camera sequence.", 400);
       if (engine === "camera") release = service.reserve();
       const files = req.files || [];
-      if (!files.length && !parentId)
+      const promptOnlyWan = engine === "ai" && aiBackend === "xzakut-wan";
+      if (!files.length && !parentId && !promptOnlyWan)
         throw new RenderError(
           "Upload at least one image to generate a video.",
+          400,
+        );
+      if (promptOnlyWan && files.length)
+        throw new RenderError(
+          "XZAKUT Motion uses the trained Wan T2V model and is prompt-only. Remove references or switch to Reference AI (LTX).",
           400,
         );
       if (
@@ -137,9 +163,24 @@ export async function createApp(options = {}) {
           "Choose landscape, portrait, or square format.",
           400,
         );
-      const selectedService = engine === "ai" ? aiService : service;
+      if (engine === "ai" && !["ltx", "xzakut-wan"].includes(aiBackend))
+        throw new RenderError("Choose a supported local AI engine.", 400);
+      const selectedService =
+        engine === "camera"
+          ? service
+          : aiBackend === "xzakut-wan"
+            ? wanService
+            : aiService;
+      if (!selectedService)
+        throw new RenderError("XZAKUT Motion is not available on this PC.", 503);
       const parsedBackgroundIndex = Number(backgroundIndex);
-      if (engine === "ai" && (!Number.isInteger(parsedBackgroundIndex) || parsedBackgroundIndex < 0 || parsedBackgroundIndex >= files.length))
+      if (
+        engine === "ai" &&
+        aiBackend !== "xzakut-wan" &&
+        (!Number.isInteger(parsedBackgroundIndex) ||
+          parsedBackgroundIndex < 0 ||
+          parsedBackgroundIndex >= files.length)
+      )
         throw new RenderError("Choose a valid background reference.", 400);
       const job = await selectedService.enqueue(
         files,
@@ -152,6 +193,8 @@ export async function createApp(options = {}) {
           backgroundIndex: parsedBackgroundIndex,
           keepIdentity: keepIdentity !== "false",
           keepOutfit: keepOutfit !== "false",
+          aiBackend,
+          soundMode,
         },
         controller.signal,
       );
@@ -253,6 +296,7 @@ if (
       void Promise.all([
         app.locals.videoService.close(),
         app.locals.aiService.close(),
+        app.locals.wanService?.close(),
       ]);
       return;
     }
@@ -263,6 +307,7 @@ if (
     Promise.all([
       app.locals.videoService.close(),
       app.locals.aiService.close(),
+      app.locals.wanService?.close(),
     ]).then(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);
