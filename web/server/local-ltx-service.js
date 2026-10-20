@@ -113,6 +113,7 @@ export class LocalLtxService extends XaiService {
     this.python = process.env.LTX_PYTHON ||
       (process.platform === "win32" ? WINDOWS_PYTHON : "python3");
     this.config = findConfig(this.repoDir);
+    this.maxReferenceImages = 4;
   }
 
   get configured() {
@@ -131,11 +132,6 @@ export class LocalLtxService extends XaiService {
   }
 
   async enqueue(files, settings, signal) {
-    if (files.length !== 1)
-      throw new RenderError(
-        "Local LTX accepts one starting photo per scene. Switch to Camera sequence for multiple ordered photos.",
-        400
-      );
     const job = await super.enqueue(files, settings, signal);
     const resolution = outputSize(job.format);
     job.model = "LTX-Video 2B (local GPU)";
@@ -157,29 +153,64 @@ export class LocalLtxService extends XaiService {
     try {
       if (!work?.images?.length) throw new RenderError("Starting photo was not found.", 400);
       const size = outputSize(job.format);
-      const input = path.join(work.workDir, "condition.png");
       const outputDir = path.join(work.workDir, "generated");
       await mkdir(outputDir, { recursive: true });
-      // A bounded, landscape/portrait/square first frame is safer than feeding
-      // enormous original images directly into a limited-VRAM diffusion model.
-      await execute(this.ffmpegPath, [
-        "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-        "-i", work.images[0].path,
-        "-vf", "scale=" + size.width + ":" + size.height +
-          ":force_original_aspect_ratio=decrease,pad=" + size.width + ":" + size.height +
-          ":(ow-iw)/2:(oh-ih)/2,format=rgb24",
-        "-frames:v", "1", input,
-      ], { signal, maxMs: 60_000 });
+
+      // Prepare every selected reference at the same bounded render size.
+      // The user-selected background reference is placed first and receives
+      // full conditioning strength; other references guide identity/outfit
+      // without being allowed to dominate the environment as strongly.
+      const prepared = [];
+      for (let index = 0; index < work.images.length; index += 1) {
+        const input = path.join(work.workDir, "condition-" + index + ".png");
+        await execute(this.ffmpegPath, [
+          "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+          "-i", work.images[index].path,
+          "-vf", "scale=" + size.width + ":" + size.height +
+            ":force_original_aspect_ratio=decrease,pad=" + size.width + ":" + size.height +
+            ":(ow-iw)/2:(oh-ih)/2,format=rgb24",
+          "-frames:v", "1", input,
+        ], { signal, maxMs: 60_000 });
+        prepared.push(input);
+      }
       job.progress = 10;
 
       const frames = job.requestedDuration * 24 + 1;
-      // Official LTX-Video image conditioning CLI. All generated frames are
-      // computed locally; no cloud inference provider and no per-render credits.
-      await execute(this.python, [
+      const backgroundIndex = Math.min(
+        Math.max(Number(job.backgroundIndex) || 0, 0),
+        prepared.length - 1,
+      );
+      const order = [
+        backgroundIndex,
+        ...prepared.map((_, index) => index).filter(index => index !== backgroundIndex),
+      ];
+      const conditioningPaths = order.map(index => prepared[index]);
+      const conditioningFrames = conditioningPaths.map(() => "0");
+      const conditioningStrengths = order.map((index, position) =>
+        position === 0 ? "1.0" : (job.keepIdentity || job.keepOutfit ? "0.62" : "0.42")
+      );
+
+      const constraints = [];
+      constraints.push(
+        "Use the environment, room, scenery, lighting context, and background composition from the primary background reference. Do not replace that background with the other references."
+      );
+      if (job.keepIdentity) constraints.push(
+        "Preserve each referenced person's identity, face shape, skin tone, hair, and distinguishing appearance consistently throughout the shot."
+      );
+      if (job.keepOutfit) constraints.push(
+        "Preserve the referenced clothing, makeup, accessories, hair styling, and outfit details unless the user's prompt explicitly asks for a change."
+      );
+      constraints.push(
+        "Treat the remaining reference images as appearance references, not as instructions to replace the selected background."
+      );
+      const modelPrompt = job.prompt.trim() + "\n\nREFERENCE RULES: " + constraints.join(" ");
+
+      const inferenceArgs = [
         path.join(this.repoDir, "inference.py"),
-        "--prompt", job.prompt,
-        "--conditioning_media_paths", input,
-        "--conditioning_start_frames", "0",
+        "--prompt", modelPrompt,
+        "--conditioning_media_paths", ...conditioningPaths,
+        "--conditioning_start_frames", ...conditioningFrames,
+        "--conditioning_strengths", ...conditioningStrengths,
         "--width", String(size.width),
         "--height", String(size.height),
         "--num_frames", String(frames),
@@ -188,7 +219,15 @@ export class LocalLtxService extends XaiService {
         "--pipeline_config", this.config,
         "--output_path", outputDir,
         "--offload_to_cpu",
-      ], { cwd: this.repoDir, signal, maxMs: 2_700_000 });
+      ];
+
+      // Official LTX-Video accepts multiple conditioning media items. All
+      // inference remains local; there is no paid API or cloud generation call.
+      await execute(this.python, inferenceArgs, {
+        cwd: this.repoDir,
+        signal,
+        maxMs: 2_700_000,
+      });
       job.progress = 80;
       const videos = (await readdir(outputDir, { recursive: true }))
         .filter(name => typeof name === "string" && name.toLowerCase().endsWith(".mp4"))
