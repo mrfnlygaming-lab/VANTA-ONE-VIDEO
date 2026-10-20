@@ -7,10 +7,12 @@ There is NO per-generation payment, xAI API key, or cloud generation account.
 
 ## Run on Windows using existing LTX
 
+> **Important:** use a freshly downloaded copy of this branch. Old extracted folders can still contain the pre-fix `scripts/start-local.mjs` that crashes on a missing `dist/index.html`. The current `START-VANTA.cmd` downloads portable Node if needed, builds the UI automatically, and starts the local LTX backend.
+
 1. Download this branch source ZIP:
    https://github.com/mrfnlygaming-lab/VANTA-ONE-VIDEO/archive/refs/heads/codex/vanta-browser-studio.zip
 2. Extract the ZIP and go into the web folder.
-3. Double-click START-VANTA-LOCAL.cmd.
+3. Double-click START-VANTA.cmd.
 4. Open http://127.0.0.1:3001 if the browser does not open automatically.
 
 The launcher defaults to your existing LTX repo at:
@@ -19,7 +21,7 @@ and your existing Python at:
     P:\GROK\python.exe
 
 If those locations differ, edit the two LTX_DIR / LTX_PYTHON lines near the
-top of START-VANTA-LOCAL.cmd. It also needs free Node.js 24, npm, FFmpeg and
+top of START-VANTA.cmd. It also needs free Node.js 24, npm, FFmpeg and
 FFprobe installed. Set FFMPEG_PATH and FFPROBE_PATH to the full paths of those
 executables if they are not on PATH. The launcher does not redownload giant
 model weights or touch paid cloud providers. The existing Python environment
