@@ -1,36 +1,21 @@
-# VANTA ONE VIDEO
+# VANTA ONE VIDEO — credit-free browser AI studio
 
-## Browser image-to-video studio
+**No paid xAI/Grok credits required in the updated Codex branch.**
+The browser AI scene mode now invokes an installed LTX-Video image-to-video
+model on your PC. No paid provider or API key is needed.
 
-[VANTA Motion Studio](web/README.md) has **AI scene** and **Camera sequence** modes.
-AI scene sends one to three references together with the full scene prompt to
-Grok for subject animation. It needs a server-side `XAI_API_KEY` and xAI credits.
-Reference scenes use a native 720p source, exported as a labeled 1080p upscale.
-The integration is tested with mocks; live paid generation is not yet verified.
+- [Windows setup — NO CREDITS](web/LOCAL-NO-CREDITS.md)
+- [Windows launcher](web/START-VANTA-LOCAL.cmd)
+- [Browser app README](web/README.md)
 
-**Run AI on your computer:** [Download VANTA-AI-LOCAL-SERVER.zip](downloads/VANTA-AI-LOCAL-SERVER.zip),
-extract it, and open START-VANTA.cmd (Windows) or START-VANTA.command (Mac) inside
-VANTA-AI. The launcher downloads verified runtime/video tools and opens the app
-in your browser. Enter your own xAI API key privately in its terminal. Keep the
-terminal open. Linux: run `bash start-vanta.sh`. See the included START-HERE.txt.
+Get the updated source from the Codex branch; the old
+downloads/VANTA-AI-LOCAL-SERVER.zip is obsolete and still charges xAI
+credits. It cannot be used for no-credit AI. A working local model,
+CUDA-enabled GPU, Python dependencies, FFmpeg/FFprobe and Node.js are
+still necessary. One starting photo per local AI scene is supported;
+Camera sequence accepts multiple photos but only pans/zooms.
 
-Camera sequence exports up to six ordered photos with pan/zoom at 1080p and an
-extension popup. It needs no API key. [Download the offline camera app](downloads/README.md),
-extract the ZIP, open VANTA-OPEN.html in Chrome/Edge, and select **Camera sequence**.
-The offline download cannot generate AI subject movement.
-
-For the server version (Node.js24 and FFmpeg required):
-
-```sh
-cd web
-npm ci --cache /tmp/vanta-npm-cache
-npm run build
-npm start
-```
-
-Configure the key securely in Environment settings for AI mode. The server uses
-port3001; this onboarding screen cannot expose a live preview. See the web README
-for setup, provider sources, privacy, storage, and validation.
+The new local code has been committed, not verified on your hardware.
 
 ## Original on-device iPhone text-to-video integration (research build)
 
